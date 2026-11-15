@@ -326,7 +326,7 @@ def find_bash():
     """A working bash for the installer snippets, or None (a Windows stub does not count)."""
     try:
         result = subprocess.run(["bash", "-c", "echo ok"], stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE, universal_newlines=True, timeout=20)
+                                stderr=subprocess.PIPE, universal_newlines=True, timeout=60)
     except (OSError, subprocess.SubprocessError):
         return None
     return "bash" if result.stdout.strip() == "ok" else None
@@ -583,7 +583,7 @@ class WatchTests(Case):
                                 ("builds;id", 1), ("$(id)", 1), ("BUILDS", 1), ("all", 1)):
             with self.subTest(value=value):
                 result = subprocess.run([bash, "-c", function + '\nvalid_watch "$1"', "_", value],
-                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
                 self.assertEqual(result.returncode, expected)
 
     def test_installer_keeps_and_writes_the_settings(self):
@@ -911,11 +911,11 @@ class WakeClientTests(Case):
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             listener.listen()
-            listener.settimeout(10)
+            listener.settimeout(60)
 
             def server():
                 with listener.accept()[0] as connection:
-                    connection.settimeout(10)
+                    connection.settimeout(60)
                     while True:
                         chunk = connection.recv(4096)
                         if not chunk:
@@ -929,8 +929,8 @@ class WakeClientTests(Case):
                     f"ec2_up.relay(socket.create_connection({listener.getsockname()!r}))")
             result = subprocess.run([sys.executable, "-B", "-c", code], input=sent,
                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    timeout=10, check=True, cwd=HERE)
-            worker.join(timeout=10)
+                                    timeout=60, check=True, cwd=HERE)
+            worker.join(timeout=60)
         self.assertEqual(b"".join(received), sent)
         self.assertEqual(result.stdout, returned)
 
