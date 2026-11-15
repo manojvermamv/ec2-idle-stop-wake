@@ -8,7 +8,7 @@
 > - **Work:** as usual.
 > - **Stop:** close your connections. You get one warning email at 30 minutes. At 45 it stops, and you get one "stopped" email with your wake link.
 >
-> `<WAKE_URL>` is your wake page link (**WakePageUrl** in the stack's Outputs tab). `<WAKE_KEY>` is in your password manager.
+> `<WAKE_URL>` is your wake page link (**WakePageUrl** in the stack's Outputs tab). `<PIN>` is the PIN you chose, in your password manager.
 
 ---
 
@@ -17,7 +17,7 @@
 | I want to… | Do this |
 |---|---|
 | Start working | Open the wake page and tap **Wake**, or [use a terminal](#-wake-from-a-terminal-or-code). |
-| Check whether it's on | Wake page → **Check status**, or `curl -d key=<WAKE_KEY> <WAKE_URL>` |
+| Check whether it's on | Wake page → **Check status**, or `curl -d pin=<PIN> <WAKE_URL>` |
 | Keep it on for a long job | Add a [long-job check](SETUP.md#step-4-install-the-idle-timer-on-the-instance), or [pause auto-stop](#-change-settings). |
 | Stop it right now | EC2 console → **Instance state → Stop instance**, or close everything and wait. |
 | Wake it when the page fails | [Other ways to wake](#-if-waking-doesnt-work) |
@@ -33,8 +33,8 @@ One command wakes the instance, waits until it's ready (up to 2 minutes), and te
 
 | Where | Wake and wait | Just check status |
 |---|---|---|
-| Mac, Linux, Windows Command Prompt | `curl -d key=<WAKE_KEY> -d action=wake <WAKE_URL>` | `curl -d key=<WAKE_KEY> <WAKE_URL>` |
-| Windows PowerShell | `curl.exe -d key=<WAKE_KEY> -d action=wake <WAKE_URL>` | `curl.exe -d key=<WAKE_KEY> <WAKE_URL>` |
+| Mac, Linux, Windows Command Prompt | `curl -d pin=<PIN> -d action=wake <WAKE_URL>` | `curl -d pin=<PIN> <WAKE_URL>` |
+| Windows PowerShell | `curl.exe -d pin=<PIN> -d action=wake <WAKE_URL>` | `curl.exe -d pin=<PIN> <WAKE_URL>` |
 
 **You should see:**
 
@@ -63,14 +63,16 @@ When `ready: yes` appears, run the `ssh:` line to connect.
 | `-d format=json` | Reply in JSON instead of text. |
 | `curl -f …` | Fail with a non-zero exit code on errors, for scripts. |
 | `curl <WAKE_URL>` | With nothing else, prints these instructions. |
-| `Invoke-RestMethod -Method Post -Uri <WAKE_URL> -Body @{key='<WAKE_KEY>'; action='wake'}` | Native PowerShell. |
+| `Invoke-RestMethod -Method Post -Uri <WAKE_URL> -Body @{pin='<PIN>'; action='wake'}` | Native PowerShell. |
 
 | Reply code | Meaning |
 |---|---|
 | `200` | Ready, or a status or dry-run reply |
 | `202` | Still starting. Ask again. |
 | `409` | Stopping, shutting down or deleted |
-| `403` | Wrong wake key |
+| `403` | Wrong PIN |
+| `429` | Too many wrong PINs. The page is locked for 15 minutes. |
+| `503` | The wrong-tries counter is unavailable. Start the instance from the EC2 console. |
 | `400` | Bad request |
 
 The progress lines arrive all together at the end. To watch live, repeat the status command.
@@ -82,7 +84,7 @@ The progress lines arrive all together at the end. To watch live, repeat the sta
 
 ```python
 import json, os, urllib.request
-body = json.dumps({"action": "wake", "key": os.environ["EC2_WAKE_KEY"], "wait": 120}).encode()
+body = json.dumps({"action": "wake", "pin": os.environ["EC2_WAKE_PIN"], "wait": 120}).encode()
 request = urllib.request.Request("<WAKE_URL>", data=body, headers={"content-type": "application/json"})
 print(json.load(urllib.request.urlopen(request, timeout=180)))
 # {"state": "running", "ready": true, "publicIp": "3.25.10.20", "ssh": "ssh ubuntu@3.25.10.20", "progress": [...]}
@@ -90,14 +92,14 @@ print(json.load(urllib.request.urlopen(request, timeout=180)))
 
 ```js
 const res = await fetch("<WAKE_URL>", { method: "POST", headers: { "content-type": "application/json" },
-  body: JSON.stringify({ action: "wake", key: process.env.EC2_WAKE_KEY, wait: 120 }) });
+  body: JSON.stringify({ action: "wake", pin: process.env.EC2_WAKE_PIN, wait: 120 }) });
 console.log(res.status, await res.json());
 ```
 
 </details>
 
 > [!TIP]
-> **Keep your key out of your command history.** Save `key=<WAKE_KEY>` in a file and use `curl -d @path/to/file -d action=wake <WAKE_URL>`.
+> **Skip typing the PIN.** Bookmark the one-tap link (`<WAKE_URL>#<PIN>`) in a browser, or keep `pin=<PIN>` in a file and use `curl -d @path/to/file -d action=wake <WAKE_URL>`. In code, read the PIN from an environment variable such as `EC2_WAKE_PIN`.
 
 ---
 
@@ -121,7 +123,7 @@ None of these need anything installed.
 | Pause auto-stop | On the instance: `sudo systemctl disable --now ec2-idle.timer` | Immediately |
 | Turn auto-stop back on | On the instance: `sudo systemctl enable --now ec2-idle.timer` | Immediately |
 | Email, schedule, alarm, login name | CloudFormation → `ec2-idle` → **Update → Use existing template**, then edit the values | After the update |
-| New wake key | Make a new key and hash ([Setup Step 1](SETUP.md#step-1-create-your-wake-key)), then update `WakeKeySha256` | Immediately. The old key stops working. |
+| New PIN | CloudFormation → `ec2-idle` → **Update → Use existing template**, then change `WakePin` | After the update. The old PIN stops working. |
 
 ---
 
@@ -162,7 +164,8 @@ If emails keep failing, the instance still stops after 3 tries, so it doesn't ru
 
 | You see | Fix |
 |---|---|
-| `error: Wrong wake key` | Copy the key again, or make a [new one](#-change-settings). |
+| `error: Wrong PIN` | Check your password manager. After 5 wrong tries the page locks for 15 minutes. |
+| `error: Too many wrong PIN tries` | Wait the time it says (up to 15 minutes), then use the right PIN. The lock ends by itself. If you forgot the PIN, [set a new one](#-change-settings). |
 | It shows `pending`, then back to `stopped` | Check the reason in the EC2 console. If your disk uses your own encryption key, set `EbsKmsKeyArn` in the stack. A capacity shortage usually clears on retry. |
 | `409` for a long time | The instance is stuck stopping. Use **Force stop** in the EC2 console. |
 | `ready: yes`, but SSH times out | Your security group must allow your IP on port 22. Without a fixed IP, use the new address shown. |
@@ -195,4 +198,4 @@ Do the steps in this order, so nothing is left behind.
 **You should see:** the stack shows **DELETE_COMPLETE**, and on the instance `systemctl list-timers ec2-idle.timer` lists nothing.
 
 > [!NOTE]
-> **Setting it up again?** A fresh stack gets a **new wake page link** (your wake key can stay the same) and a **new email subscription** to confirm. Update your bookmark, and click the new "Subscription Confirmation" email before running the installer.
+> **Setting it up again?** A fresh stack gets a **new wake page link** (your PIN can stay the same) and a **new email subscription** to confirm. Update your bookmark, and click the new "Subscription Confirmation" email before running the installer.

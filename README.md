@@ -30,7 +30,7 @@ Your EC2 instance (a computer you rent from AWS) turns itself off when you stop 
 | | Feature | What it means for you |
 |---|---|---|
 | 💤 | **Stops by itself** | A tiny timer inside the instance checks every minute and stops it after 45 idle minutes. It's lightweight enough for the smallest instance and stays out of the way of heavy workloads. No other machine is involved. |
-| 🌐 | **Wake page** | A private link to open on any browser or phone. Tap **Wake**, and it shows when the instance is ready and the command to connect. |
+| 🌐 | **Wake page** | A private link to open on any browser or phone. Type your PIN once (the browser remembers it), tap **Wake**, and it shows when the instance is ready and the command to connect. Or bookmark `link#PIN` to wake with **one tap**. |
 | ⌨️ | **Wake from a terminal or code** | One command wakes the instance, waits until it's ready, and prints the progress. Scripts and AI agents can use it too. |
 | ⏰ | **Work-hours start** (optional) | It starts on a timetable you choose, for example 9:00 on weekdays. |
 | 🛡️ | **Protects your work** | Open connections (SSH, VS Code, Cursor and others) keep it awake. You can also keep it awake for long jobs that run after you disconnect. |
@@ -40,7 +40,7 @@ Your EC2 instance (a computer you rent from AWS) turns itself off when you stop 
 This is what the terminal wake looks like:
 
 ```text
-$ curl -d key=<WAKE_KEY> -d action=wake <WAKE_URL>
+$ curl -d pin=<PIN> -d action=wake <WAKE_URL>
 state: running
 ready: yes
 ssh: ssh ubuntu@3.25.10.20
@@ -99,7 +99,7 @@ Follow AGENT_SETUP.md at https://github.com/manojvermamv/ec2-idle-stop-wake up t
 ```
 
 > [!NOTE]
-> Your **wake key**, the password for your wake page, never has to be shared with the assistant. You create it yourself.
+> You choose your **PIN**, the short password for your wake page, and type it into the stack form yourself. The assistant never needs to see or repeat it.
 
 ---
 
@@ -131,6 +131,7 @@ AWS charges **nothing extra for stopping and starting**. You pay the normal rate
 | 💾 **Disk storage** | All month, even while stopped. |
 | 🌍 **Fixed IP address** (optional) | About US$3.65/month. Without one, the address changes at each start and the wake page shows the new one. |
 | ✉️ **Email, wake page, schedule, alarm** | Expected US$0. Normal use fits inside the AWS free allowances. |
+| 🔢 **Wrong-PIN counter** (DynamoDB) | Well under US$0.01 a month. It's billed per request, and a few wakes a day are a few requests. |
 
 <details>
 <summary><b>Price details and links</b></summary>
@@ -144,6 +145,7 @@ AWS charges **nothing extra for stopping and starting**. You pay the normal rate
 | Lambda wake page | The first 1 million requests and 400,000 GB-seconds each month are free. [Lambda pricing](https://aws.amazon.com/lambda/pricing/) |
 | EventBridge Scheduler | The first 14 million runs each month are free. [EventBridge pricing](https://aws.amazon.com/eventbridge/pricing/) |
 | CloudWatch alarm | The first 10 alarms are free. [CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/) |
+| DynamoDB (wrong-PIN counter) | On-demand, billed per request. A few requests a day cost well under US$0.01 a month. [DynamoDB pricing](https://aws.amazon.com/dynamodb/pricing/on-demand/) |
 | CloudFormation | No charge. |
 
 </details>
@@ -175,8 +177,9 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 
 ## 🔐 Is it safe?
 
-- 🔑 **The wake page needs your wake key.** Even someone with both the link and the key can only *start* the instance. They can't log in, read files or stop it, and it turns itself off again when idle.
-- 🔒 **AWS never stores your key,** only a scrambled fingerprint of it (a SHA-256 hash).
+- 🔑 **The wake page needs your PIN.** You choose a short one (for example 4821). Even someone with both the link and the PIN can only *start* the instance. They can't log in, read files or stop it, and it turns itself off again when idle.
+- 🔒 **Wrong guesses lock the page.** 5 wrong PINs lock it for 15 minutes, so a short PIN can't be guessed. A tiny database table counts the tries (a few requests a month, well under a cent). If it can't, the page stays closed rather than open.
+- 🤫 **Your PIN is hidden in the stack form and the stack's details.** It's kept in the wake page's own settings (a Lambda setting), which only people with access to your AWS account can read. They can already start and stop the instance anyway.
 - 🧩 **Each part has the smallest possible permission.** The wake page can only start this one instance, and the instance can only stop itself.
 - 🤖 **AI agents need your yes for every change.** Reading the docs gives them no permission. See the [agent rules](AGENT_SETUP.md#-step-0-rules-for-the-agent).
 - 🚪 **Tip:** limit who can reach your instance's SSH port to your own IP address. The discovery check warns you if it's open to everyone.
@@ -204,7 +207,7 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 | **Elastic IP** | A fixed internet address. Optional. |
 | **CloudShell** | A terminal inside the AWS console that's already signed in. |
 | **CloudFormation stack** | A bundle of AWS pieces created and removed together from one file (`src/ec2-idle-stack.yaml`). |
-| **Wake key** | The password for your wake page. |
+| **PIN** | The short password for your wake page. 5 wrong tries lock it for 15 minutes. |
 | **SSH** | The usual way to connect to a Linux machine. VS Code and Cursor use it too. |
 | **Region** | The AWS location where your instance lives, for example Sydney. |
 

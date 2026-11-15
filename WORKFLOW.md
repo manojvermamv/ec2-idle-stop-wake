@@ -47,7 +47,7 @@ flowchart TB
 | Piece | Lives in | Runs when | Allowed to |
 |---|---|---|---|
 | Idle timer (`ec2_idle.py`) | The instance | Every minute, starting 5 minutes after boot | Stop **its own** instance and send **its own** emails (one warning, one "stopped") |
-| Wake page (`wake_ec2.py`) | AWS Lambda | You open it, or call it with the wake key | Look up instances, and start **this** instance |
+| Wake page (`wake_ec2.py`) | AWS Lambda | You open it, or call it with your PIN | Look up instances, and start **this** instance |
 | Work-hours start | AWS EventBridge Scheduler | On your timetable | Start **this** instance |
 | Backup alarm | AWS CloudWatch | CPU stays low for hours while running | Email you (or, if you opt in, stop the instance) |
 | SSH helper (`ec2_up.py`) | Your computer, optional | You run `ssh` | Call the wake page, then connect |
@@ -115,10 +115,10 @@ sequenceDiagram
     participant You as 🧑 You (browser, terminal, code)
     participant L as 🌐 Wake page (AWS Lambda)
     participant E as 🖥️ EC2 instance
-    You->>L: wake + your wake key
-    L->>L: check the key's fingerprint
-    alt wrong key
-        L-->>You: "Wrong wake key"
+    You->>L: wake + your PIN
+    L->>L: locked after wrong tries? PIN right?
+    alt locked or wrong PIN
+        L-->>You: "Wrong PIN" or "try again later"
     else instance is stopping
         L->>E: wait until stopped, then start
     else instance is stopped
@@ -144,8 +144,9 @@ sequenceDiagram
 
 | Choice | Why | Not chosen |
 |---|---|---|
-| A public link protected by a wake key | It works on any device with no AWS login. The worst a stranger with the key can do is start it, and it stops again by itself. | AWS-signed requests, which need AWS tools and logins that expire. |
-| AWS stores only the key's fingerprint | Nothing secret is stored in AWS. | Storing the key itself. |
+| A public link protected by a short PIN | It works on any device with no AWS login. The worst a stranger with the PIN can do is start it, and it stops again by itself. | AWS-signed requests, which need AWS tools and logins that expire. |
+| 5 wrong tries lock the page for 15 minutes | A short, easy PIN can't be guessed in practice. A tiny table counts the tries, and if it can't, the page stays closed. | A long random key, which is a pain to type and move around. |
+| The PIN is stored as a hidden stack setting | Hashing a short PIN adds no real protection, and setup stays one simple step. | A hash you had to compute by hand. |
 | The timer talks to AWS directly | Nothing extra to install on the instance. | Installing the AWS command-line tools. |
 | Only logged-in sessions count | Internet scanners can't keep it awake. | Counting any network connection. |
 | The backup alarm only emails by default | Quiet editing uses little CPU, so an automatic stop could cut you off. | Stopping automatically on low CPU. |

@@ -298,7 +298,7 @@ def stopped_email(cfg, ctx, now_text):
         body += (
             f"To start it again, open your wake page and tap Wake:\n{cfg.wake_url}\n\n"
             f"Or run this in any terminal (Windows PowerShell: use curl.exe):\n"
-            f"curl -d key=YOUR_WAKE_KEY -d action=wake {cfg.wake_url}\n"
+            f"curl -d pin=YOUR_PIN -d action=wake {cfg.wake_url}\n"
         )
     else:
         body += "To start it again, use your wake page or the EC2 console (Instance state > Start).\n"

@@ -2,16 +2,16 @@
 
 Browsers get a web page. Terminals and code POST to the same URL:
 
-    curl -d key=YOUR_WAKE_KEY -d action=wake URL     (waits, then prints readable progress)
-    curl -d key=YOUR_WAKE_KEY URL                    (status only)
+    curl -d pin=YOUR_PIN -d action=wake URL     (waits, then prints readable progress)
+    curl -d pin=YOUR_PIN URL                    (status only)
 
 Form posts and "accept: text/plain" get "name: value" text. JSON posts and
-"accept: application/json" get JSON. The key is checked against WAKE_KEY_SHA256,
-so the function configuration never holds the key itself.
+"accept: application/json" get JSON. The PIN is compared with WAKE_PIN. A few
+wrong tries lock the page for a while (state kept in a small DynamoDB table),
+so even a short PIN cannot be guessed. The PIN can only start the instance.
 """
 
 import base64
-import hashlib
 import hmac
 import json
 import os
@@ -22,6 +22,7 @@ import boto3
 from botocore.exceptions import ClientError
 
 ec2 = boto3.client("ec2")
+ddb = boto3.client("dynamodb")
 
 POLL_SECONDS = 4
 MAX_WAIT_SECONDS = 150
@@ -38,15 +39,17 @@ HEADERS = {
 HELP = """EC2 wake API
 
 Wake and wait until ready (prints progress, IP and SSH command):
-  curl -d key=YOUR_WAKE_KEY -d action=wake {url}
+  curl -d pin=YOUR_PIN -d action=wake {url}
 
 Status only:
-  curl -d key=YOUR_WAKE_KEY {url}
+  curl -d pin=YOUR_PIN {url}
 
 Options: action=status|wake, wait=SECONDS (0-150, text wake default 120),
 format=text|json. Windows PowerShell: use curl.exe, or
-  Invoke-RestMethod -Method Post -Uri {url} -Body @{{key='YOUR_WAKE_KEY'; action='wake'}}
-Exit-code friendly: add curl -f to fail on a wrong key or a blocked wake.
+  Invoke-RestMethod -Method Post -Uri {url} -Body @{{pin='YOUR_PIN'; action='wake'}}
+Exit-code friendly: add curl -f to fail on a wrong PIN or a blocked wake.
+A few wrong PIN tries lock the page for a while.
+One-tap bookmark: {url}#YOUR_PIN
 """
 
 PAGE = """<!doctype html>
@@ -92,8 +95,8 @@ code { display: block; margin-top: 8px; padding: 10px; border-radius: 8px; borde
 <h1>Wake EC2</h1>
 <p>Start your workspace from any browser. It stops again by itself when idle.</p>
 <form id="form">
-<label for="key">Wake key</label>
-<input id="key" type="password" autocomplete="current-password" required>
+<label for="pin">PIN</label>
+<input id="pin" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required>
 <label class="remember"><input id="remember" type="checkbox"> Remember on this device</label>
 <div class="row">
 <button id="wake" type="submit">Wake</button>
@@ -111,7 +114,7 @@ code { display: block; margin-top: 8px; padding: 10px; border-radius: 8px; borde
 <script>
 const $ = (id) => document.getElementById(id);
 let timer = null, began = 0, lastState = "";
-try { const saved = localStorage.getItem("wakeKey"); if (saved) { $("key").value = saved; $("remember").checked = true; } } catch (e) {}
+try { const saved = localStorage.getItem("wakePin"); if (saved) { $("pin").value = saved; $("remember").checked = true; } } catch (e) {}
 
 function note(text) {
   const item = document.createElement("li");
@@ -132,18 +135,18 @@ function show(data, failed) {
 }
 
 async function call(action) {
-  const key = $("key").value.trim();
-  if (!key) { $("key").focus(); return null; }
+  const pin = $("pin").value.trim();
+  if (!pin) { $("pin").focus(); return null; }
   try {
-    if ($("remember").checked) localStorage.setItem("wakeKey", key); else localStorage.removeItem("wakeKey");
+    if ($("remember").checked) localStorage.setItem("wakePin", pin); else localStorage.removeItem("wakePin");
   } catch (e) {}
   const response = await fetch(location.pathname, {
     method: "POST", headers: { "content-type": "application/json", "accept": "application/json" },
-    body: JSON.stringify({ action, key, wait: 0 }),
+    body: JSON.stringify({ action, pin, wait: 0 }),
   });
   let data = {};
   try { data = await response.json(); } catch (e) { data = { error: "Unexpected response" }; }
-  const failed = response.status === 403 || response.status === 400 || response.status >= 500;
+  const failed = [400, 403, 429].includes(response.status) || response.status >= 500;
   show(data, failed);
   return failed ? null : data;
 }
@@ -169,6 +172,14 @@ async function run(action, attempt = 0) {
 
 $("form").addEventListener("submit", (event) => { event.preventDefault(); run("wake"); });
 $("status").addEventListener("click", () => run("status"));
+
+// One-tap bookmark: https://.../#YOUR_PIN wakes at once. The part after # is never sent to AWS.
+if (location.hash.length > 1) {
+  let pin = "";
+  try { pin = decodeURIComponent(location.hash.slice(1)); } catch (e) {}
+  history.replaceState(null, "", location.pathname + location.search);
+  if (pin) { $("pin").value = pin; $("remember").checked = true; run("wake"); }
+}
 </script>
 </body>
 </html>
@@ -196,8 +207,9 @@ def read_request(event):
     else:
         fields = {name: values[-1] for name, values in urllib.parse.parse_qs(body).items()}
         fields["_body"] = "form"
-    if not fields.get("key") and headers.get("x-wake-key"):
-        fields["key"] = headers["x-wake-key"]
+    pin = (fields.get("pin") or fields.get("key") or headers.get("x-wake-pin")
+           or headers.get("x-wake-key") or "")
+    fields["pin"] = str(pin).strip()[:128]
     return fields, headers
 
 
@@ -227,12 +239,16 @@ def as_text(data):
     return "\n".join(lines) + "\n"
 
 
-def reply(status, data, text=False):
-    if text:
-        return {"statusCode": status, "body": as_text(data),
-                "headers": {**HEADERS, "content-type": "text/plain; charset=utf-8"}}
-    return {"statusCode": status, "body": json.dumps(data),
-            "headers": {**HEADERS, "content-type": "application/json"}}
+def reply(status, data, text=False, extra=None):
+    kind = "text/plain; charset=utf-8" if text else "application/json"
+    return {"statusCode": status, "body": as_text(data) if text else json.dumps(data),
+            "headers": {**HEADERS, **(extra or {}), "content-type": kind}}
+
+
+def plural(count, word):
+    if count == 1:
+        return f"{count} {word}"
+    return f"{count} {word[:-1]}ies" if word.endswith("y") else f"{count} {word}s"
 
 
 def page():
@@ -248,12 +264,74 @@ def help_text(headers):
             "headers": {**HEADERS, "content-type": "text/plain; charset=utf-8"}}
 
 
-def key_matches(key):
-    expected = os.environ.get("WAKE_KEY_SHA256", "").strip().lower()
-    if len(expected) != 64 or not key:
+def pin_matches(pin):
+    expected = os.environ.get("WAKE_PIN", "")
+    if not expected or not pin:
         return False
-    actual = hashlib.sha256(str(key).encode("utf-8")).hexdigest()
-    return hmac.compare_digest(actual, expected)
+    return hmac.compare_digest(str(pin).encode("utf-8"), expected.encode("utf-8"))
+
+
+# Lockout: a few wrong PINs lock the page, so a short PIN cannot be guessed ------
+
+LOCK_KEY = {"id": {"S": "wake"}}
+
+
+def lock_settings():
+    tries = int(os.environ.get("MAX_WRONG_TRIES", "5"))
+    seconds = int(os.environ.get("LOCK_MINUTES", "15")) * 60
+    return tries, seconds
+
+
+def check_lock():
+    """Return (seconds left on a lock, wrong tries so far). Raises if the store fails."""
+    table = os.environ.get("LOCK_TABLE")
+    if not table:
+        return 0, 0
+    item = ddb.get_item(TableName=table, Key=LOCK_KEY, ConsistentRead=True).get("Item", {})
+    until = int(item.get("until", {}).get("N", "0"))
+    fails = int(item.get("fails", {}).get("N", "0"))
+    return max(0, until - int(time.time())), fails
+
+
+def record_failure():
+    """Count one wrong PIN. Return (seconds now locked for, tries left before a lock)."""
+    table = os.environ.get("LOCK_TABLE")
+    if not table:
+        return 0, None
+    tries, seconds = lock_settings()
+    now = int(time.time())
+    expires = {"N": str(now + 86400)}
+    attrs = ddb.update_item(
+        TableName=table, Key=LOCK_KEY, ReturnValues="ALL_NEW",
+        UpdateExpression="ADD #f :one SET #s = if_not_exists(#s, :now), #e = :exp",
+        ExpressionAttributeNames={"#f": "fails", "#s": "since", "#e": "expires"},
+        ExpressionAttributeValues={":one": {"N": "1"}, ":now": {"N": str(now)}, ":exp": expires},
+    )["Attributes"]
+    fails = int(attrs["fails"]["N"])
+    if now - int(attrs["since"]["N"]) > seconds:  # old wrong tries expired: count afresh
+        ddb.update_item(
+            TableName=table, Key=LOCK_KEY, UpdateExpression="SET #f = :one, #s = :now",
+            ExpressionAttributeNames={"#f": "fails", "#s": "since"},
+            ExpressionAttributeValues={":one": {"N": "1"}, ":now": {"N": str(now)}})
+        fails = 1
+    if fails >= tries:
+        ddb.update_item(
+            TableName=table, Key=LOCK_KEY, UpdateExpression="SET #u = :until, #f = :zero, #e = :exp REMOVE #s",
+            ExpressionAttributeNames={"#u": "until", "#f": "fails", "#e": "expires", "#s": "since"},
+            ExpressionAttributeValues={":until": {"N": str(now + seconds)}, ":zero": {"N": "0"},
+                                       ":exp": {"N": str(now + seconds + 86400)}})
+        return seconds, 0
+    return 0, tries - fails
+
+
+def clear_failures():
+    ddb.delete_item(TableName=os.environ["LOCK_TABLE"], Key=LOCK_KEY)
+
+
+def locked_reply(seconds, text):
+    minutes = max(1, -(-seconds // 60))
+    return reply(429, {"error": f"Too many wrong PIN tries. Try again in {plural(minutes, 'minute')}.",
+                       "retryAfterSeconds": seconds}, text, {"retry-after": str(seconds)})
 
 
 def wait_seconds(fields, text, action, context):
@@ -348,9 +426,32 @@ def lambda_handler(event, context):
     except (ValueError, UnicodeDecodeError):
         return reply(400, {"error": "Send a JSON or form body"})
     text = wants_text(fields, headers)
-    if not key_matches(fields.get("key")):
-        print("Rejected request: wrong wake key")
-        return reply(403, {"error": "Wrong wake key"}, text)
+    try:
+        locked, previous_fails = check_lock()
+    except Exception as error:  # fail closed: without the counter, nobody may guess
+        print(f"Lock check failed: {error}")
+        return reply(503, {"error": "Temporarily unavailable. Start the instance from the EC2 console."}, text)
+    if locked:
+        print("Rejected request: page is locked after wrong PINs")
+        return locked_reply(locked, text)
+    if not pin_matches(fields["pin"]):
+        print("Rejected request: wrong PIN")
+        try:
+            locked, left = record_failure()
+        except Exception as error:
+            print(f"Could not count the wrong PIN: {error}")
+            locked, left = 0, None
+        if locked:
+            return locked_reply(locked, text)
+        message = "Wrong PIN"
+        if left:
+            message += f". {plural(left, 'try')} left before a {lock_settings()[1] // 60}-minute lock."
+        return reply(403, {"error": message}, text)
+    if previous_fails:
+        try:
+            clear_failures()
+        except Exception as error:
+            print(f"Could not reset the wrong PIN count: {error}")
     action = str(fields.get("action", "status")).lower()
     if action not in {"status", "wake"}:
         return reply(400, {"error": "action must be status or wake"}, text)

@@ -45,7 +45,7 @@ python -B -m unittest discover -s src -v
 | `SigningTests` | AWS request signing, against AWS's published example (and against the official AWS library, botocore, when it's installed) |
 | `CheckTests` | `--check` passes and fails correctly |
 | `WakeClientTests` | The optional SSH helper: waiting, `--no-wake`, wrong key, data relay |
-| `LambdaTests` | Wake page vs instructions, text vs JSON, waiting and progress, keys, dry run |
+| `LambdaTests` | Wake page vs instructions, text vs JSON, waiting and progress, PIN checks, the 5-tries lockout (lock, unlock, reset, expiry, fail closed), dry run |
 | `TemplateTests` | The stack file contains the current wake page code |
 
 </details>
@@ -96,7 +96,7 @@ sudo -v && bash verify_guest.sh
 2. Run:
 
    ```bash
-   curl -d key=<WAKE_KEY> -d action=wake <WAKE_URL>
+   curl -d pin=<PIN> -d action=wake <WAKE_URL>
    ```
 
 3. Set `WakeDryRun` back to `false`.
@@ -116,7 +116,7 @@ sudo -v && bash verify_guest.sh
 | 2 | Close **every** connection and editor window | Your devices | – |
 | 3 | Wait about 3 minutes | – | One warning email arrives |
 | 4 | Wait about 2 more minutes | EC2 console | **Stopped** |
-| 5 | `curl -d key=<WAKE_KEY> -d action=wake <WAKE_URL>` | Any terminal | `ready: yes` and an `ssh:` line |
+| 5 | `curl -d pin=<PIN> -d action=wake <WAKE_URL>` | Any terminal | `ready: yes` and an `ssh:` line |
 | 6 | Connect and look at your files | Instance | Everything is still there |
 | 7 | `bash install_guest.sh` | Instance | Back to 30 and 45 minutes, with no extra test email |
 
@@ -160,7 +160,7 @@ sudo systemctl daemon-reload
 
 | Check | Result |
 |---|---|
-| 35 unit tests on Windows, Python 3.13, with and without botocore | ✅ Passed |
+| 45 unit tests on Windows, Python 3.13, with and without botocore | ✅ Passed |
 | Request signing matches AWS's published example and botocore | ✅ Passed |
 | Template check (`cfn-lint`) | ✅ Clean |
 | `discover.sh` against simulated AWS answers | ✅ Passed |

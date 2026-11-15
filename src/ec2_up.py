@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Optional SSH helper: wake EC2 through the wake page, wait for SSH, then relay.
 
-Uses only the Python standard library and the wake key. No AWS CLI, profile or
+Uses only the Python standard library and your wake PIN. No AWS CLI, profile or
 sign-in is needed. Example OpenSSH setting:
 
-    ProxyCommand python /path/to/ec2_up.py WAKE_URL --key-file ~/.ssh/ec2-wake.key --proxy --port %p
+    ProxyCommand python /path/to/ec2_up.py WAKE_URL --pin-file ~/.ssh/ec2-wake.pin --proxy --port %p
 """
 
 import argparse
@@ -21,7 +21,7 @@ import urllib.request
 
 def call(args, action):
     """POST to the wake page. Returns (HTTP status, JSON body)."""
-    body = json.dumps({"action": action, "key": args.key}).encode("utf-8")
+    body = json.dumps({"action": action, "pin": args.pin}).encode("utf-8")
     request = urllib.request.Request(args.url, data=body, method="POST",
                                      headers={"content-type": "application/json"})
     try:
@@ -32,7 +32,7 @@ def call(args, action):
             data = json.loads(error.read() or b"{}")
         except ValueError:
             data = {}
-        if error.code in (400, 403, 405) or error.code >= 500:
+        if error.code in (400, 403, 405, 429) or error.code >= 500:
             raise RuntimeError(data.get("error") or f"wake page returned HTTP {error.code}") from None
         return error.code, data
 
@@ -97,7 +97,8 @@ def relay(connection):
 def main():
     parser = argparse.ArgumentParser(description="Wake EC2 through its wake page and wait for SSH.")
     parser.add_argument("url", help="wake page URL from the CloudFormation stack outputs")
-    parser.add_argument("--key-file", help="file that holds the wake key (default: EC2_WAKE_KEY)")
+    parser.add_argument("--pin-file", "--key-file", dest="pin_file",
+                        help="file that holds your wake PIN (default: the EC2_WAKE_PIN variable)")
     parser.add_argument("--port", type=int, default=22)
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--private-ip", action="store_true", help="connect to the private IP")
@@ -106,12 +107,12 @@ def main():
     args = parser.parse_args()
     if not 1 <= args.port <= 65535 or args.timeout < 1:
         parser.error("use a valid port and a positive timeout")
-    if args.key_file:
-        args.key = Path(args.key_file).expanduser().read_text(encoding="utf-8").strip()
+    if args.pin_file:
+        args.pin = Path(args.pin_file).expanduser().read_text(encoding="utf-8").strip()
     else:
-        args.key = os.environ.get("EC2_WAKE_KEY", "").strip()
-    if not args.key:
-        parser.error("pass --key-file or set EC2_WAKE_KEY")
+        args.pin = (os.environ.get("EC2_WAKE_PIN") or os.environ.get("EC2_WAKE_KEY") or "").strip()
+    if not args.pin:
+        parser.error("pass --pin-file or set EC2_WAKE_PIN")
 
     address, connection = wait_for_ssh(args)
     with connection:

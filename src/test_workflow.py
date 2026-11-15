@@ -2,7 +2,6 @@
 
 import base64
 import contextlib
-import hashlib
 import importlib.util
 import io
 import itertools
@@ -108,7 +107,7 @@ class IdleTests(Case):
         self.assertIn("has had no activity for 1 minute.", warn_body)
         self.assertEqual(stop_subject, "EC2 dev-box (i-test) has stopped")
         self.assertIn("https://wake.example/", stop_body)
-        self.assertIn("curl -d key=YOUR_WAKE_KEY -d action=wake https://wake.example/", stop_body)
+        self.assertIn("curl -d pin=YOUR_PIN -d action=wake https://wake.example/", stop_body)
         for text in (warn_subject, stop_subject):
             self.assertTrue(text.isascii() and len(text) < 100)
 
@@ -350,7 +349,7 @@ class CheckTests(Case):
 
 class WakeClientTests(Case):
     def setUp(self):
-        self.args = SimpleNamespace(url="https://wake.example", key="k", timeout=300,
+        self.args = SimpleNamespace(url="https://wake.example", pin="k", timeout=300,
                                     no_wake=False, port=22, private_ip=False)
         self.enter(patch.object(ec2_up.time, "sleep"))
         self.enter(contextlib.redirect_stderr(io.StringIO()))
@@ -374,12 +373,13 @@ class WakeClientTests(Case):
             ec2_up.wait_for_ssh(self.args)
         call.assert_called_once_with(self.args, "status")
 
-    def test_rejected_key_is_reported(self):
-        error = ec2_up.urllib.error.HTTPError("https://wake.example", 403, "Forbidden", {},
-                                              io.BytesIO(b'{"error": "Wrong wake key"}'))
-        with patch.object(ec2_up.urllib.request, "urlopen", side_effect=error), \
-                self.assertRaisesRegex(RuntimeError, "Wrong wake key"):
-            ec2_up.call(self.args, "wake")
+    def test_wrong_pin_and_lock_messages_are_reported(self):
+        for code, message in ((403, "Wrong PIN"), (429, "Too many wrong PIN tries")):
+            error = ec2_up.urllib.error.HTTPError("https://wake.example", code, "Rejected", {},
+                                                  io.BytesIO(json.dumps({"error": message}).encode()))
+            with patch.object(ec2_up.urllib.request, "urlopen", side_effect=error), \
+                    self.assertRaisesRegex(RuntimeError, message):
+                ec2_up.call(self.args, "wake")
 
     def test_proxy_relays_binary_in_both_directions(self):
         sent = b"\x00\x1a\r\nSSH-client\xff"
@@ -412,8 +412,46 @@ class WakeClientTests(Case):
         self.assertEqual(result.stdout, returned)
 
 
+class FakeDynamo:
+    """Just enough of the DynamoDB client for the wrong-PIN counter."""
+
+    def __init__(self):
+        self.item = None
+        self.fail = False
+        self.deleted = 0
+
+    def get_item(self, TableName, Key, ConsistentRead=False):
+        if self.fail:
+            raise RuntimeError("DynamoDB is down")
+        return {"Item": dict(self.item)} if self.item else {}
+
+    def update_item(self, TableName, Key, UpdateExpression, ExpressionAttributeNames,
+                    ExpressionAttributeValues, ReturnValues="NONE"):
+        if self.fail:
+            raise RuntimeError("DynamoDB is down")
+        values = {name: value["N"] for name, value in ExpressionAttributeValues.items()}
+        item = self.item = self.item or {}
+        if UpdateExpression.startswith("ADD #f"):
+            item["fails"] = {"N": str(int(item.get("fails", {"N": "0"})["N"]) + 1)}
+            item.setdefault("since", {"N": values[":now"]})
+            item["expires"] = {"N": values[":exp"]}
+        elif UpdateExpression == "SET #f = :one, #s = :now":
+            item["fails"], item["since"] = {"N": values[":one"]}, {"N": values[":now"]}
+        elif UpdateExpression.startswith("SET #u"):
+            item.update(until={"N": values[":until"]}, fails={"N": values[":zero"]},
+                        expires={"N": values[":exp"]})
+            item.pop("since", None)
+        else:
+            raise AssertionError(UpdateExpression)
+        return {"Attributes": dict(item)} if ReturnValues == "ALL_NEW" else {}
+
+    def delete_item(self, TableName, Key):
+        self.deleted += 1
+        self.item = None
+
+
 class LambdaTests(Case):
-    KEY = "correct horse battery staple"
+    PIN = "4821"
 
     def setUp(self):
         class ClientError(Exception):
@@ -423,16 +461,17 @@ class LambdaTests(Case):
 
         self.error = ClientError
         self.ec2 = Mock()
+        self.ddb = FakeDynamo()
         spec = importlib.util.spec_from_file_location("wake_ec2", HERE / "wake_ec2.py")
         self.module = importlib.util.module_from_spec(spec)
         with patch.dict(sys.modules, {
-            "boto3": SimpleNamespace(client=lambda service: self.ec2),
+            "boto3": SimpleNamespace(client=lambda service: {"ec2": self.ec2, "dynamodb": self.ddb}[service]),
             "botocore.exceptions": SimpleNamespace(ClientError=ClientError),
         }):
             spec.loader.exec_module(self.module)
         self.enter(patch.dict(os.environ, {
             "INSTANCE_ID": "i-test", "DRY_RUN": "false", "SSH_USER": "ubuntu",
-            "WAKE_KEY_SHA256": hashlib.sha256(self.KEY.encode()).hexdigest()}))
+            "WAKE_PIN": self.PIN}))
         self.enter(contextlib.redirect_stdout(io.StringIO()))
 
     def post(self, payload, **extra):
@@ -475,7 +514,7 @@ class LambdaTests(Case):
         self.assertIn("<title>Wake EC2</title>", result["body"])
         result = self.get("*/*")
         self.assertIn("text/plain", result["headers"]["content-type"])
-        self.assertIn("curl -d key=YOUR_WAKE_KEY -d action=wake "
+        self.assertIn("curl -d pin=YOUR_PIN -d action=wake "
                       "https://abc.lambda-url.test-region.on.aws/", result["body"])
         self.ec2.describe_instances.assert_not_called()
 
@@ -485,7 +524,7 @@ class LambdaTests(Case):
                     ("running", "192.0.2.10"))
         self.ec2.start_instances.return_value = {
             "StartingInstances": [{"CurrentState": {"Name": "pending"}}]}
-        status, body, kind = self.form(f"key={self.KEY}&action=wake")
+        status, body, kind = self.form(f"pin={self.PIN}&action=wake")
         self.assertEqual((status, kind.split(";")[0]), (200, "text/plain"))
         for line in ("state: running", "ready: yes", "public_ip: 192.0.2.10",
                      "ssh: ssh ubuntu@192.0.2.10", "progress:", "start requested, now pending"):
@@ -494,12 +533,12 @@ class LambdaTests(Case):
 
     def test_terminal_status_and_errors_are_text(self):
         self.state("stopped")
-        status, body, _ = self.form(f"key={self.KEY}")
+        status, body, _ = self.form(f"pin={self.PIN}")
         self.assertEqual(status, 200)
         self.assertTrue(body.startswith("state: stopped\nready: no\n"))
         self.ec2.start_instances.assert_not_called()
-        self.assertEqual(self.form("key=nope&action=wake")[:2], (403, "error: Wrong wake key\n"))
-        self.assertEqual(self.form(f"key={self.KEY}&action=wake&wait=soon")[0], 400)
+        self.assertEqual(self.form("pin=nope&action=wake")[:2], (403, "error: Wrong PIN\n"))
+        self.assertEqual(self.form(f"pin={self.PIN}&action=wake&wait=soon")[0], 400)
 
     def test_accept_json_and_wait_budget_for_code(self):
         self.enter(patch.object(self.module.time, "sleep"))
@@ -508,24 +547,24 @@ class LambdaTests(Case):
         self.states(("stopped", None), *[("pending", None)] * 10)
         self.ec2.start_instances.return_value = {
             "StartingInstances": [{"CurrentState": {"Name": "pending"}}]}
-        status, body, kind = self.form(f"key={self.KEY}&action=wake&wait=60",
+        status, body, kind = self.form(f"pin={self.PIN}&action=wake&wait=60",
                                        accept="application/json")
         data = json.loads(body)
         self.assertEqual((status, kind, data["state"], data["ready"]),
                          (202, "application/json", "pending", False))
         self.assertIn("Starting", data["message"])
 
-    def test_wrong_or_missing_key_is_rejected_before_aws_calls(self):
-        self.assertEqual(self.post({"action": "wake", "key": "nope"})[0], 403)
+    def test_wrong_or_missing_pin_is_rejected_before_aws_calls(self):
+        self.assertEqual(self.post({"action": "wake", "pin": "nope"})[0], 403)
         self.assertEqual(self.post({"action": "wake"})[0], 403)
-        os.environ["WAKE_KEY_SHA256"] = ""
-        self.assertEqual(self.post({"action": "wake", "key": self.KEY})[0], 403)
+        os.environ["WAKE_PIN"] = ""
+        self.assertEqual(self.post({"action": "wake", "pin": self.PIN})[0], 403)
         self.ec2.describe_instances.assert_not_called()
 
     def test_other_methods_and_bad_bodies(self):
         put = self.module.lambda_handler({"requestContext": {"http": {"method": "PUT"}}}, None)
         self.assertEqual(put["statusCode"], 405)
-        status, _ = self.post({"action": "reboot", "key": self.KEY})
+        status, _ = self.post({"action": "reboot", "pin": self.PIN})
         self.assertEqual(status, 400)
         bad = {"requestContext": {"http": {"method": "POST"}}, "body": "[1]",
                "headers": {"content-type": "application/json"}}
@@ -533,7 +572,7 @@ class LambdaTests(Case):
 
     def test_status_returns_addresses_and_never_starts(self):
         self.state("stopped")
-        status, data = self.post({"action": "status", "key": self.KEY})
+        status, data = self.post({"action": "status", "pin": self.PIN})
         self.assertEqual((status, data["state"], data["privateIp"]), (200, "stopped", "10.0.0.5"))
         self.ec2.start_instances.assert_not_called()
 
@@ -541,7 +580,7 @@ class LambdaTests(Case):
         self.state("stopped")
         self.ec2.start_instances.return_value = {
             "StartingInstances": [{"CurrentState": {"Name": "pending"}}]}
-        status, data = self.post({"action": "wake", "key": self.KEY})
+        status, data = self.post({"action": "wake", "pin": self.PIN})
         self.assertEqual((status, data["state"]), (202, "pending"))
         self.ec2.start_instances.assert_called_once_with(InstanceIds=["i-test"])
 
@@ -549,16 +588,16 @@ class LambdaTests(Case):
         self.state("running", "192.0.2.10")
         body = base64.b64encode(json.dumps({"action": "wake"}).encode()).decode()
         status, data = self.post({}, body=body, isBase64Encoded=True,
-                                 headers={"X-Wake-Key": self.KEY})
+                                 headers={"X-Wake-Key": self.PIN})
         self.assertEqual((status, data["publicIp"]), (200, "192.0.2.10"))
         self.ec2.start_instances.assert_not_called()
 
     def test_transitional_states_and_races(self):
         self.state("stopping")
-        self.assertEqual(self.post({"action": "wake", "key": self.KEY})[0], 409)
+        self.assertEqual(self.post({"action": "wake", "pin": self.PIN})[0], 409)
         self.state("stopped")
         self.ec2.start_instances.side_effect = self.error("IncorrectInstanceState")
-        status, data = self.post({"action": "wake", "key": self.KEY})
+        status, data = self.post({"action": "wake", "pin": self.PIN})
         self.assertEqual(status, 202)
         self.assertIn("state changed during start, retrying",
                       [step["event"] for step in data["progress"]])
@@ -567,9 +606,81 @@ class LambdaTests(Case):
         os.environ["DRY_RUN"] = "true"
         self.state("stopped")
         self.ec2.start_instances.side_effect = self.error("DryRunOperation")
-        status, data = self.post({"action": "wake", "key": self.KEY})
+        status, data = self.post({"action": "wake", "pin": self.PIN})
         self.assertEqual((status, data["dryRun"]), (200, True))
         self.ec2.start_instances.assert_called_once_with(InstanceIds=["i-test"], DryRun=True)
+
+    def lock_on(self):
+        os.environ["LOCK_TABLE"] = "locks"
+        self.state("stopped")
+        self.ec2.start_instances.return_value = {
+            "StartingInstances": [{"CurrentState": {"Name": "pending"}}]}
+        return self.enter(patch.object(self.module.time, "time", return_value=1_000_000))
+
+    def wrong(self):
+        return self.post({"action": "status", "pin": "0000"})
+
+    def test_pin_aliases_and_one_tap_page(self):
+        self.state("running", "192.0.2.10")
+        for payload, extra in (({"action": "status", "key": self.PIN}, {}),
+                               ({"action": "status"}, {"headers": {"x-wake-pin": self.PIN}}),
+                               ({"action": "status"}, {"headers": {"X-Wake-Key": self.PIN}})):
+            self.assertEqual(self.post(payload, **extra)[0], 200)
+        page = self.get("text/html")["body"]
+        self.assertIn('id="pin"', page)
+        self.assertIn("location.hash", page)
+        self.assertNotIn("YOUR_WAKE_KEY", page)
+
+    def test_five_wrong_pins_lock_the_page_even_for_the_right_pin(self):
+        self.lock_on()
+        for left in ("4 tries", "3 tries", "2 tries", "1 try"):
+            status, data = self.wrong()
+            self.assertEqual(status, 403)
+            self.assertIn(f"{left} left before a 15-minute lock", data["error"])
+        status, data = self.wrong()
+        self.assertEqual((status, data["retryAfterSeconds"]), (429, 900))
+        self.assertIn("Try again in 15 minutes", data["error"])
+        self.assertEqual(self.post({"action": "wake", "pin": self.PIN})[0], 429)
+        self.ec2.describe_instances.assert_not_called()
+        self.ec2.start_instances.assert_not_called()
+
+    def test_lock_ends_and_a_right_pin_works_again(self):
+        clock = self.lock_on()
+        for _ in range(5):
+            self.wrong()
+        clock.return_value += 15 * 60 - 1
+        self.assertEqual(self.post({"action": "status", "pin": self.PIN})[0], 429)
+        clock.return_value += 2
+        self.assertEqual(self.post({"action": "status", "pin": self.PIN})[0], 200)
+        status, data = self.wrong()
+        self.assertEqual(status, 403)
+        self.assertIn("4 tries left", data["error"])
+
+    def test_a_right_pin_resets_the_wrong_count(self):
+        self.lock_on()
+        self.wrong()
+        self.wrong()
+        self.assertEqual(self.post({"action": "status", "pin": self.PIN})[0], 200)
+        self.assertEqual(self.ddb.deleted, 1)
+        for _ in range(4):
+            self.assertEqual(self.wrong()[0], 403)
+
+    def test_old_wrong_tries_do_not_pile_up(self):
+        clock = self.lock_on()
+        for _ in range(4):
+            self.wrong()
+        clock.return_value += 16 * 60
+        status, data = self.wrong()
+        self.assertEqual(status, 403)
+        self.assertIn("4 tries left", data["error"])
+
+    def test_counter_failure_fails_closed(self):
+        self.lock_on()
+        self.ddb.fail = True
+        status, data = self.post({"action": "wake", "pin": self.PIN})
+        self.assertEqual(status, 503)
+        self.assertIn("EC2 console", data["error"])
+        self.ec2.start_instances.assert_not_called()
 
 
 class TemplateTests(Case):

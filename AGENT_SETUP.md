@@ -20,7 +20,7 @@
 > 3. Show you a plan and its cost.
 > 4. Make each change only after you say yes.
 >
-> Your wake key stays with you.
+> You choose your PIN yourself. The assistant never needs to repeat it.
 
 The rest of this page is written **for the AI agent**. It turns [SETUP.md](SETUP.md) into the same steps in order: rules, interview, discovery, plan, setup, checks and a hand-off report.
 
@@ -49,10 +49,10 @@ The rest of this page is written **for the AI agent**. It turns [SETUP.md](SETUP
 2. **Read before you change.** Commands marked **Changes AWS** or **Changes the instance** need their gate first.
 3. **One Region only.** Use the project's selected Region, from AWS Settings → View all projects → Overview → Additional Info → Region, or from `aws configure get region`. Never create resources anywhere else.
 4. **No secrets through you or into the repo.**
-   - The user creates the wake key ([SETUP Step 1](SETUP.md#step-1-create-your-wake-key)) and gives you **only the hash**.
+   - The user chooses the wake PIN ([SETUP Step 1](SETUP.md#step-1-choose-your-pin)). The easiest and safest way is for them to type it into the stack form themselves. If you pass it for them, send it only as the hidden `WakePin` parameter, and never repeat it back, log it or write it to a file.
    - Never write keys, account IDs, IPs or emails into repository files.
 5. **Use what the user has.** Use an attached AWS MCP server first, then the AWS CLI. If you have neither, give the user CloudShell commands to run and ask them to paste the output.
-   - **New accounts:** CloudShell may refuse to start while AWS verifies the account ("account verification is in progress", up to two days). Then use the MCP server, or have the user create the wake key in PowerShell and deploy through the console upload.
+   - **New accounts:** CloudShell may refuse to start while AWS verifies the account ("account verification is in progress", up to two days). Then use the MCP server, or have the user deploy through the console upload.
 6. **Stop on surprises.** Report and ask on any of these:
    - an `UNSUPPORTED` finding;
    - a stack that already exists;
@@ -153,7 +153,7 @@ Creates:  wake page (Lambda + link), permissions, 14-day logs
           backup alarm (<email | stop>)
           new instance role                     [if none exists]
 Modifies: existing role <ROLE> gets the stack policy added  [if a role exists]
-Settings: <exact parameter list; show the hash as <hash>>
+Settings: <exact parameter list; show WakePin as <hidden>>
 Then ask separately: attach role? fixed IP (or: keep existing EIP <IP>)?
           temporary SSH access (if no route)? install the timer?
 Cost:     about US$0 for the AWS pieces; compute only while running;
@@ -169,7 +169,7 @@ Expect:   an "ALARM" email within about 20 minutes of deploy if the instance is 
 
 | # | Gate | Do | You should see |
 |---|---|---|---|
-| 4.1 | – | Ask the user to do SETUP Step 1 and give you **only the hash**. | 64 letters and numbers |
+| 4.1 | – | Ask the user for a PIN of 4 to 64 letters and numbers (SETUP Step 1). They may type it into the stack form themselves instead. | A PIN they remember |
 | 4.2 | G3 | Deploy the stack with the planned settings: with the CLI, use SETUP Step 2's command option; with an MCP server or SDK, see the recipe below. | `CREATE_COMPLETE` |
 | 4.3 | – | Read the outputs: `WakePageUrl`, `TerminalWakeCommand`, `AlertTopicArn`, `GuestInstallCommand`, `AttachRoleCommand`. | An outputs table |
 | 4.4 | – | Ask the user to confirm the subscription email **now, before 4.7**, and wait for their "done". Mention that an "ALARM" email may also arrive (see the plan). | The user confirms |
@@ -205,7 +205,7 @@ Expect:   an "ALARM" email within about 20 minutes of deploy if the instance is 
 | Check | Gate | How | Pass |
 |---|---|---|---|
 | Wake page answers | – | `curl <WAKE_URL>` | Instructions text |
-| Key works | – | The user runs `curl -d key=<WAKE_KEY> <WAKE_URL>` | A `state:` line |
+| PIN works | – | The user runs `curl -d pin=<PIN> <WAKE_URL>` | A `state:` line |
 | Instance check | – | [TESTING Level 4](TESTING.md#-level-4-instance-check) | `All checks passed.` |
 | Timer is on | – | `systemctl list-timers ec2-idle.timer --no-pager` | Next run within 1 minute |
 | Live test | G5 | [TESTING Level 6](TESTING.md#-level-6-live-acceptance-cycle) | Email, stopped, woke, files intact |
@@ -219,7 +219,7 @@ Finish with this. Show real values in chat only, never in repo files.
 ```text
 DONE: EC2 idle stop and wake
 Wake page:      <WAKE_URL>  (bookmark it; the key is in your password manager)
-Terminal wake:  curl -d key=<WAKE_KEY> -d action=wake <WAKE_URL>
+Terminal wake:  curl -d pin=<PIN> -d action=wake <WAKE_URL>
 Auto-stop:      warn at <W> min, stop at <S> min; long-job check: <PATH | none>
 Schedule:       <CRON TIME_ZONE | off>     IP: <FIXED_IP | changes each start>
 Email:          <EMAIL | none> (confirmed: yes/no)

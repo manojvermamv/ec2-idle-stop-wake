@@ -4,7 +4,7 @@
 
 > [!TIP]
 > **In short**
-> - **What you'll do:** create a password (the wake key), create the AWS pieces from one file, then install a small timer on your instance.
+> - **What you'll do:** choose a short PIN, create the AWS pieces from one file, then install a small timer on your instance.
 > - **Time:** about 15 minutes, once.
 > - **You need:** the AWS console and your usual way of connecting to the instance. Nothing gets installed on your computer.
 >
@@ -26,7 +26,7 @@
 > [!NOTE]
 > **New AWS account? CloudShell may not open yet.** While AWS verifies a new account (up to two days), CloudShell can show *"Unable to create the environment. Your account verification is in progress"*. You can still finish setup without it:
 > - **Step 0:** use Option B, or an AI assistant with an AWS MCP server.
-> - **Step 1:** use the PowerShell command.
+> - **Step 1:** nothing to do, because you just choose a PIN.
 > - **Step 2:** use the console upload.
 > - **Step 3:** use the console steps.
 
@@ -35,7 +35,7 @@
 | Step | What | Time |
 |---|---|---|
 | 0 | Collect your settings | 2 min |
-| 1 | Create your wake key | 1 min |
+| 1 | Choose your PIN | 10 sec |
 | 2 | Create the AWS pieces | 4 min |
 | 3 | Give the instance its permission (and an optional fixed IP) | 1 min |
 | 4 | Install the idle timer on the instance | 3 min |
@@ -87,29 +87,13 @@ bash discover.sh --instance <INSTANCE_ID>  # checks one and suggests settings
 
 ---
 
-## Step 1: Create your wake key
+## Step 1: Choose your PIN
 
-The wake key is the password for your wake page. AWS only keeps a scrambled fingerprint of it, called the **hash**.
+Your PIN is the password for your wake page. Pick **4 to 64 letters and numbers**, for example `4821`. You'll type it into the stack form in Step 2, so there's nothing to generate.
 
-**▶ Run in:** your computer · 🔒 **Changes nothing**
-
-**Windows (PowerShell):**
-
-```powershell
-$b = [byte[]]::new(20); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $key = -join ($b | % { $_.ToString('x2') })
-"Wake key: $key"; "Hash:     " + (-join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($key)) | % { $_.ToString('x2') }))
-```
-
-**Mac, Linux, Git Bash or CloudShell:**
-
-```bash
-key=$(openssl rand -hex 20); echo "Wake key: $key"; echo "Hash:     $(printf '%s' "$key" | sha256sum | cut -d' ' -f1)"
-```
-
-**You should see:** two lines of random letters and numbers.
-
-> [!IMPORTANT]
-> Save the **wake key** in your password manager. You'll need the **hash** in Step 2. Never put either one in Git.
+- **A short PIN is fine.** After 5 wrong tries the page locks for 15 minutes, so it can't be guessed, and the PIN can only *start* the instance.
+- **Longer is stronger.** A mix such as `blue7tiger` is easy to remember and much harder to guess.
+- **Save it in your password manager,** and keep it out of Git.
 
 ---
 
@@ -122,7 +106,7 @@ This creates everything in one go from the file `src/ec2-idle-stack.yaml`: the w
 1. Open **CloudFormation → Create stack → With new resources**.
 2. Choose **Upload a template file** and pick `ec2-idle-stack.yaml`. Download it first from [src/ec2-idle-stack.yaml](https://github.com/manojvermamv/ec2-idle-stop-wake/blob/main/src/ec2-idle-stack.yaml) (**Download raw file**).
 3. Name the stack `ec2-idle`.
-4. Fill in your values from Step 0. Only **InstanceId** and **WakeKeySha256** are required.
+4. Fill in your values from Step 0. Only **InstanceId** and **WakePin** (your PIN) are required.
 5. Tick the box that acknowledges IAM resources, then choose **Submit**.
 6. Wait for the status **CREATE_COMPLETE**, which takes about 2 minutes.
 
@@ -134,7 +118,7 @@ Run it from the `src` folder you downloaded in Step 0. Leave out any optional li
 ```bash
 aws cloudformation deploy --stack-name ec2-idle --template-file ec2-idle-stack.yaml \
   --capabilities CAPABILITY_IAM --parameter-overrides \
-  InstanceId=<INSTANCE_ID> WakeKeySha256=<WAKE_KEY_HASH> SshUser=<SSH_USER> \
+  InstanceId=<INSTANCE_ID> WakePin=<PIN> SshUser=<SSH_USER> \
   InstanceRoleName=<ROLE_NAME_OR_EMPTY> \
   NotificationEmail=<EMAIL_OR_EMPTY> \
   WorkHoursStart='<CRON_OR_EMPTY>' ScheduleTimezone=<TIME_ZONE> \
@@ -150,7 +134,7 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 | Setting | Default | Meaning |
 |---|---|---|
 | `InstanceId` | required | Your instance. |
-| `WakeKeySha256` | required | The hash from Step 1. |
+| `WakePin` | required | Your PIN from Step 1 (4 to 64 letters and numbers). It's hidden in the stack form and details. |
 | `InstanceRoleName` | empty | Your existing role name. If empty, a new role is created. |
 | `SshUser` | `ubuntu` | Login name shown in the connect command. |
 | `EbsKmsKeyArn` | empty | Only needed if your disk uses your own encryption key. |
@@ -169,6 +153,7 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 | Output | What it's for |
 |---|---|
 | **WakePageUrl** | Your wake page. Bookmark it on your computer and phone. |
+| **OneTapBookmark** | The same link ending in `#YOUR_PIN`. Replace `YOUR_PIN` with your PIN and bookmark that for **one-tap waking**. The part after `#` is never sent to AWS. |
 | **TerminalWakeCommand** | The one-line wake for any terminal. |
 | **GuestInstallCommand** | You'll paste this in Step 4. |
 | **AttachRoleCommand** | Shown only if a new role was created. You'll use it in Step 3. |
@@ -308,7 +293,7 @@ By default, the instance stops 45 minutes after your last connection closes. If 
 <details>
 <summary>Automatic SSH setup (Mac, Linux, Windows)</summary>
 
-1. Save your wake key on one line in `~/.ssh/ec2-wake.key`. On Windows that's `%USERPROFILE%\.ssh\ec2-wake.key`.
+1. Save your PIN on one line in `~/.ssh/ec2-wake.pin`. On Windows that's `%USERPROFILE%\.ssh\ec2-wake.pin`.
 2. Add this to `~/.ssh/config`. On Windows the file is `%USERPROFILE%\.ssh\config`.
 
 ```sshconfig
@@ -319,7 +304,7 @@ Host ec2-workspace
     IdentityFile ~/.ssh/<YOUR_PRIVATE_KEY>
     ConnectTimeout 360
     ServerAliveInterval 30
-    ProxyCommand python /absolute/path/to/ec2-idle-stop-wake/src/ec2_up.py <WAKE_URL> --key-file ~/.ssh/ec2-wake.key --proxy --port %p
+    ProxyCommand python /absolute/path/to/ec2-idle-stop-wake/src/ec2_up.py <WAKE_URL> --pin-file ~/.ssh/ec2-wake.pin --proxy --port %p
 ```
 
 3. Connect with `ssh ec2-workspace`. VS Code and Cursor can use the same name.
@@ -345,7 +330,7 @@ Follow the short live test in [TESTING.md](TESTING.md#-level-6-live-acceptance-c
 
 ## ✅ Done checklist
 
-- [ ] Wake key saved in your password manager
+- [ ] PIN saved in your password manager
 - [ ] Stack `ec2-idle` shows **CREATE_COMPLETE**
 - [ ] Email subscription confirmed, if you added an email
 - [ ] Role attached in Step 3a, if one was created
