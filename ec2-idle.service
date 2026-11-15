@@ -1,0 +1,16 @@
+[Unit]
+Description=Check EC2 activity and stop the instance after the idle deadline
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/ec2-idle.conf
+RuntimeDirectory=ec2-idle
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+TimeoutStartSec=90
+ExecStart=/usr/bin/python3 /usr/local/sbin/ec2_idle.py
+NoNewPrivileges=yes
+ProtectHome=read-only
+ProtectSystem=full

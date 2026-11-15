@@ -1,0 +1,10 @@
+[Unit]
+Description=Check EC2 idle time every minute after boot
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=1min
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target
