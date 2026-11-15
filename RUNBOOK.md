@@ -21,6 +21,7 @@
 | Keep it on for a long job | Add a [long-job check](SETUP.md#step-4-install-the-idle-timer-on-the-instance), or [pause auto-stop](#-change-settings). |
 | Stop it right now | EC2 console → **Instance state → Stop instance**, or close everything and wait. |
 | Wake it when the page fails | [Other ways to wake](#-if-waking-doesnt-work) |
+| Get a shell when SSH isn't open | Use the **Session Manager** tab (needs `EnableSessionManager`), or open a [temporary SSH rule](SETUP.md#step-4-install-the-idle-timer-on-the-instance) with `bash temp_ssh.sh open <INSTANCE_ID>` and close it afterwards. |
 | Change times, email or schedule | [Change settings](#-change-settings) |
 | Fix a problem | [Fix a problem](#-fix-a-problem) |
 | Remove everything | [Remove everything](#-remove-everything) |
@@ -123,7 +124,8 @@ None of these need anything installed.
 | Warning or stop times, long-job check, name in emails (`INSTANCE_NAME`), wake link in emails (`WAKE_PAGE_URL`), warning email limit (`WARN_EMAIL_GAP_MINUTES`, default 60) | On the instance: `sudoedit /etc/ec2-idle.conf` | Within 1 minute |
 | Pause auto-stop | On the instance: `sudo systemctl disable --now ec2-idle.timer` | Immediately |
 | Turn auto-stop back on | On the instance: `sudo systemctl enable --now ec2-idle.timer` | Immediately |
-| Email, schedule, alarm, login name | CloudFormation → `ec2-idle` → **Update → Use existing template**, then edit the values | After the update |
+| Email, schedule, alarm, Session Manager, login name | CloudFormation → `ec2-idle` → **Update → Use existing template**, then edit the values | After the update |
+| Idle times on a running instance | On the instance: run the installer again with `--warn` and `--stop`. (The stack's `WarnMinutes` and `StopMinutes` only fill in the install command.) | Within 1 minute |
 | New PIN | CloudFormation → `ec2-idle` → **Update → Use existing template**, then change `WakePin` | After the update. The old PIN stops working. |
 
 ---
@@ -147,6 +149,17 @@ sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idl
 | `Busy (workload)` | Your long-job check still finds a running job. | Run the check by hand, then `echo $?`. Make its pattern stricter. |
 | Errors in the log | It's missing a permission or setting. | Run the `--check` command above. It names the problem. |
 | An "ALARM" email from the optional backup alarm | The instance ran quietly for hours without stopping. There are three possible reasons: an editor or session is still open, the timer isn't installed or working, or the stack was just created on an already-idle instance before the timer was installed. | Run the three commands above. If the timer is fine and nothing is open, it was a one-off from setup and clears once the instance stops. |
+
+### 🧰 The installer says…
+
+| You see | What it means | Do |
+|---|---|---|
+| `Python 3.6 or newer was not found. Installing it with …` | Normal. It installs Python and carries on. | Nothing. Add `--no-deps` to stop it installing. |
+| `could not install Python with …` | The package manager failed. | Install Python 3.6 or newer yourself, then run again with `--python /path/to/python3`. |
+| `systemd is not running here` | The timer needs systemd. Amazon Linux, Ubuntu, Debian, RHEL, Rocky, Alma, SUSE and Fedora have it. Alpine and containers don't. | Use a supported system. |
+| `No IAM role is attached to this instance` | The stack's role isn't on the instance yet. | Attach it ([Setup Step 3](SETUP.md#step-3-give-the-instance-its-permission)), wait a minute, run again. |
+| `Your current login was not seen as a session` | Without that, the timer could stop the instance while you're connected. | Debian and Ubuntu: `sudo apt install libpam-systemd`, make sure `sshd` has `UsePAM yes`, log in again. |
+| `this needs root` | There's no `sudo` and you aren't root. | Run it as root, or install `sudo`. |
 
 ### ⛔ It stopped while I was working
 
@@ -192,7 +205,8 @@ Do the steps in this order, so nothing is left behind.
    aws ec2 disassociate-iam-instance-profile --association-id <ASSOCIATION_ID>
    ```
 3. **Delete the stack:** CloudFormation → `ec2-idle` → **Delete**. This removes the wake page, email topic, alarm and the role it created.
-4. **If you made a fixed IP for this,** release it, because it costs money until you do:
+4. **If you opened a temporary SSH rule,** close it: `bash temp_ssh.sh close <INSTANCE_ID>`.
+5. **If you made a fixed IP for this,** release it, because it costs money until you do:
    - `aws ec2 disassociate-address --public-ip <IP>`
    - then `aws ec2 release-address --allocation-id <ALLOCATION_ID>`
 

@@ -6,15 +6,19 @@ After=network-online.target
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/ec2-idle.conf
-RuntimeDirectory=ec2-idle
-RuntimeDirectoryMode=0700
-RuntimeDirectoryPreserve=yes
+# The idle clock lives in /run/ec2-idle (memory only, cleared at every boot). It is created
+# here instead of with RuntimeDirectory=, which keeps it between runs on older systemd too
+# (Amazon Linux 2, RHEL 7) as well as on current releases.
+Environment=RUNTIME_DIRECTORY=/run/ec2-idle
+ExecStartPre=/bin/mkdir -p -m 0700 /run/ec2-idle
 # -I -S: isolated mode without site-packages, so Python starts faster and loads less.
+# install_guest.sh swaps in the Python it found if python3 isn't /usr/bin/python3.
 ExecStart=/usr/bin/python3 -I -S /usr/local/sbin/ec2_idle.py
 TimeoutStartSec=120
 
 # Stay light and out of the way of real work, even on small or busy hosts.
 # Memory is capped below, with a soft limit of 48 MB and a hard limit of 96 MB.
+# Older systemd versions ignore the settings they don't know and log a warning.
 Nice=10
 CPUWeight=20
 IOSchedulingClass=best-effort

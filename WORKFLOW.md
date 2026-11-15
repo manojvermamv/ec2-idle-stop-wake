@@ -107,6 +107,24 @@ The timer is built to be invisible, even on the smallest instance or one that's 
 
 ---
 
+## 🌍 Runs on many systems
+
+The timer is meant to run on almost any Linux instance, so it is built from as little as possible.
+
+| Choice | Why it helps |
+|---|---|
+| **Python standard library only** | Nothing to install from a package index, and no compiled parts. The timer works on x86_64 and on Graviton (arm64) alike. |
+| **Python 3.6 or newer** | RHEL, Rocky and Alma 8, SUSE 15 and Amazon Linux 2 ship 3.6 or 3.7. Current releases ship 3.12 to 3.14. The tests run on every version from 3.6 to 3.14. |
+| **The installer finds or installs Python** | It knows apt, dnf, yum, zypper and pacman, so a minimal image still works. |
+| **Logged-in sessions come from systemd** | The same idea `autosuspend`, a popular suspend-when-idle daemon, uses. It makes VS Code and Cursor sessions count, and scanners not. |
+| **State lives in `/run/ec2-idle`** | It's created by the service itself, because the usual systemd setting for it only exists from version 235. Older systems such as Amazon Linux 2 would lose it between runs. |
+| **Older systemd is tolerated** | Resource limits the system doesn't know are ignored with a warning, not an error. |
+| **systemd is required** | Alpine, other non-systemd systems and containers aren't supported. Windows and Mac instances aren't either. |
+
+`autosuspend` needs Python 3.11 or newer plus `psutil`, `dbus-python` and `PyGObject`, and it ships as distribution packages. That suits a desktop or home server. An EC2 instance can be any age and any distribution, so this project ships one installer and no dependencies instead.
+
+---
+
 ## 🌐 How waking works
 
 ```mermaid

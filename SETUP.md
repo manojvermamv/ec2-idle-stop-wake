@@ -83,7 +83,9 @@ It checks the 5 things that can block setup: an EBS root disk, not Windows or Sp
 | Email for warnings | Optional | `<EMAIL_OR_EMPTY>` |
 | IP address | **Already has an Elastic IP?** Keep it and skip Step 3b. Otherwise choose **fixed** (about US$3.65/month) or **changing** (free, and the wake page shows it). | keep / fixed / changing |
 | Daily start time | Optional, for example `cron(0 9 ? * MON-FRI *)\|Asia/Kolkata` for 9:00 on weekdays in India. The `\|` and time zone are optional (UTC without them). | `<SCHEDULE_OR_EMPTY>` |
+| Idle times | Optional. Minutes without activity before the warning email, and before the stop. The defaults are 30 and 45. | `<WARN>` `<STOP>` |
 | Long jobs | Work that must keep running after you disconnect, such as AI agents, builds or training | `<JOBS_OR_NONE>` |
+| Browser shell | Optional. Choose **yes** if you can't SSH in from your computer. It gives you a shell in the browser (Session Manager) with no port or key to open. | yes / no |
 
 > [!NOTE]
 > Everything used here works on the **AWS Free plan**. Create everything in your project's Region.
@@ -125,6 +127,7 @@ aws cloudformation deploy --stack-name ec2-idle --template-file ec2-idle-stack.y
   InstanceRoleName=<ROLE_NAME_OR_EMPTY> \
   NotificationEmail=<EMAIL_OR_EMPTY> \
   WorkHoursStart='<SCHEDULE_OR_EMPTY>' \
+  WarnMinutes=<WARN> StopMinutes=<STOP> EnableSessionManager=<yes_OR_no> \
   EbsKmsKeyArn=<KMS_KEY_ARN_OR_EMPTY>
 aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outputs' --output table
 ```
@@ -143,6 +146,9 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 | `EbsKmsKeyArn` | empty | Only needed if your disk uses your own encryption key. |
 | `NotificationEmail` | empty | Where the warning and stopped emails go. |
 | `WorkHoursStart` | empty | Optional daily start: a cron expression, then optionally `\|` and a time zone, for example `cron(0 9 ? * MON-FRI *)\|Asia/Kolkata`. Without a time zone it runs in UTC, and it follows daylight saving when you give a zone. [Cron format](https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html#cron-based) |
+| `WarnMinutes` | `30` | Idle minutes before the warning email. It goes into the install command in **GuestInstallCommand**. |
+| `StopMinutes` | `45` | Idle minutes before the instance stops. It must be more than `WarnMinutes`. |
+| `EnableSessionManager` | `no` | `yes` gives you a shell in the browser (Session Manager) with no SSH port or key. It adds the AmazonSSMManagedInstanceCore policy to the role this stack creates, so leave `InstanceRoleName` empty. With your own role, attach that policy yourself. |
 | `BackupAlarmHours` | `0` (off) | Optional safety net. Set it to `4` to get an email if the instance runs 4 hours under 3% CPU without stopping, which could mean the idle timer broke. It needs `NotificationEmail`. A long quiet session, such as an open editor, can also trigger it. |
 
 </details>
@@ -155,7 +161,8 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 | **OneTapBookmark** | The same link ending in `#YOUR_PIN`. Replace `YOUR_PIN` with your PIN and bookmark that for **one-tap waking**. The part after `#` is never sent to AWS. |
 | **TerminalWakeCommand** | The one-line wake for any terminal. |
 | **AlertTopicArn** | Only if you entered an email. It's already inside **GuestInstallCommand**. |
-| **GuestInstallCommand** | You'll paste this in Step 4. |
+| **GuestInstallCommand** | You'll paste this in Step 4. It already carries your idle times. |
+| **ConnectInBrowser** | Opens the EC2 connect page for your instance. With **EnableSessionManager** there's a Session Manager tab that needs no SSH port. |
 | **AttachRoleCommand** | Shown only if a new role was created. You'll use it in Step 3. |
 
 > [!IMPORTANT]
@@ -195,17 +202,38 @@ aws ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].Publi
 > [!CAUTION]
 > **Run these commands ON THE EC2 INSTANCE, not on your own computer.** In Windows PowerShell, `bash install_guest.sh` either fails with *"Windows Subsystem for Linux has no installed distributions"* or stops with *"run this ON THE EC2 INSTANCE"*. Either way, nothing gets installed on the instance.
 
-**First, open a terminal on the instance.** Use whichever of these works for you:
+**The installer looks after its own prerequisites.** It needs Python 3.6 or newer and systemd. If Python is missing it installs it for you (with apt, dnf, yum, zypper or pacman) and carries on. Add `--no-deps` to stop it installing anything.
 
-| Way | Needs |
-|---|---|
-| **SSH** from your computer | An inbound port 22 rule for your IP in the instance's security group |
-| **EC2 Instance Connect** (EC2 console → instance → **Connect**) | An inbound port 22 rule for the AWS prefix list `com.amazonaws.<REGION>.ec2-instance-connect` |
-| **EC2 Instance Connect Endpoint** | An endpoint in the instance's VPC. It has no endpoint fee and needs no public SSH. |
-| **Session Manager** | The `AmazonSSMManagedInstanceCore` policy on the instance role |
+**First, open a terminal on the instance.** Use whichever of these works for you. The first one is the best choice when you have no way in yet:
 
-> [!TIP]
-> If none of these is set up, add a **temporary** inbound rule: port 22 from **My IP** only. Run the install, then delete the rule. The idle timer doesn't need it afterwards.
+| Way | Needs | Good when |
+|---|---|---|
+| **Session Manager** (EC2 console → instance → **Connect** → **Session Manager** tab) | **EnableSessionManager = yes** in Step 2 and the role attached in Step 3. The instance needs the AWS SSM agent (Ubuntu and Amazon Linux AMIs include it) and a route to the internet. Allow a few minutes after attaching the role. | **Recommended** when you can't SSH in: no port, no key, nothing to remove afterwards. |
+| **SSH** from your computer | An inbound port 22 rule for your IP, and your key file | You already connect this way. |
+| **EC2 Instance Connect** (EC2 console → instance → **Connect**) | An inbound port 22 rule for the AWS prefix list `com.amazonaws.<REGION>.ec2-instance-connect` | You'd rather use the browser than your own key. |
+| **EC2 Instance Connect Endpoint** | An endpoint in the instance's VPC. It has no endpoint fee and needs no public SSH. | You keep SSH closed. |
+| **A temporary SSH rule and your key** | `temp_ssh.sh`, below | Nothing else is set up, and you have the key file. |
+
+<details>
+<summary>Temporary SSH access, only when you need it</summary>
+
+This opens port 22 for **your current IP address only**, for a limited time, then closes it. The idle timer doesn't need it afterwards.
+
+**▶ Run in:** CloudShell, or any terminal with AWS CLI v2 signed in · ✏️ **Changes AWS**
+
+```bash
+bash temp_ssh.sh open <INSTANCE_ID>                 # your current IP only, for 30 minutes
+ssh -i ~/.ssh/<YOUR_KEY>.pem <SSH_USER>@<INSTANCE_IP>
+#   ...run the install below on the instance, then log out...
+bash temp_ssh.sh close <INSTANCE_ID>                # remove the rule
+```
+
+- **Time:** `--minutes 60` changes the 30-minute default. It's a promise written into the rule, not a timer, because AWS can't remove a rule by itself. Run `close` when you're done. Any later `open`, `status` or `close` also removes rules that have run out.
+- **Other options:** `--ip <ADDRESS>` if the address it finds isn't yours, `--port`, `--group sg-…` to use another security group, and `status` to see what's open.
+- **It applies to every instance that uses that security group.**
+- **By hand instead:** in the EC2 console, open the instance's security group, add an inbound rule **SSH, My IP**, and delete it when you're done.
+
+</details>
 
 1. On the instance, download this project:
 
@@ -227,6 +255,7 @@ aws ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].Publi
 **You should see:**
 
 ```text
+Detected: Ubuntu 24.04.1 LTS | package manager: apt-get | python: /usr/bin/python3 (3.12.3) | systemd: 255 (running: yes)
 Checking this host...
 Warn after 30 min, stop after 45 min.
 OK    Login session check works (1 remote session(s) now)
@@ -281,7 +310,10 @@ By default, the instance stops 45 minutes after your last connection closes. If 
 
 | Option | Effect |
 |---|---|
-| `--warn 20 --stop 30` | Change the timings. The defaults are 30 and 45 minutes. |
+| `--warn 20 --stop 30` | Change the timings. The defaults are 30 and 45 minutes. The stack's **GuestInstallCommand** already includes yours. |
+| `--python /path/to/python3` | Use this Python (3.6 or newer) instead of the one it finds. |
+| `--no-deps` | Don't install anything, even if Python is missing. |
+| `--deps-only` | Check and install the prerequisites, show what was found, and stop. |
 | `--name my-dev-box` | A friendly name for the emails. |
 | `--probe /path` | The long-job check from above. `--probe none` removes it. |
 | `--test-email` | Send the setup test email again. |

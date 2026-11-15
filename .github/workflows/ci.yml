@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint, docs and systemd units
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Template and scripts
+        run: |
+          pip install cfn-lint
+          cfn-lint src/ec2-idle-stack.yaml
+          for f in src/*.sh .github/ci/*.sh; do bash -n "$f"; done
+          shellcheck -S warning src/*.sh .github/ci/*.sh
+      - name: Docs still match the code
+        run: python src/check_docs.py
+      - name: systemd accepts the unit files
+        run: |
+          sudo install -m 0644 src/ec2-idle.service src/ec2-idle.timer /etc/systemd/system/
+          sudo install -m 0755 src/ec2_idle.py /usr/local/sbin/ec2_idle.py
+          sudo touch /etc/ec2-idle.conf
+          systemd-analyze verify /etc/systemd/system/ec2-idle.service /etc/systemd/system/ec2-idle.timer
+
+  python:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.6", "3.7", "3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests in the official Python image
+        run: |
+          docker run --rm -e PYTHONIOENCODING=utf-8 -v "$PWD":/repo -w /repo \
+            python:${{ matrix.python }}-slim python -B -m unittest discover -s src
+
+  distros:
+    name: ${{ matrix.image }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest]
+        arch: [x86_64]
+        image:
+          - ubuntu:20.04
+          - ubuntu:22.04
+          - ubuntu:24.04
+          - ubuntu:26.04
+          - debian:11
+          - debian:12
+          - debian:13
+          - amazonlinux:2
+          - amazonlinux:2023
+          - rockylinux:8
+          - rockylinux:9
+          - almalinux:8
+          - almalinux:9
+          - almalinux:10
+          - oraclelinux:8
+          - oraclelinux:9
+          - quay.io/centos/centos:stream9
+          - fedora:latest
+          - opensuse/leap:15.6
+          - archlinux:latest
+        include:
+          - {runner: ubuntu-24.04-arm, arch: arm64, image: "ubuntu:24.04"}
+          - {runner: ubuntu-24.04-arm, arch: arm64, image: "debian:13"}
+          - {runner: ubuntu-24.04-arm, arch: arm64, image: "amazonlinux:2023"}
+          - {runner: ubuntu-24.04-arm, arch: arm64, image: "rockylinux:9"}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installer prerequisites, then the tests on the distro's own Python
+        run: docker run --rm -v "$PWD":/repo ${{ matrix.image }} bash /repo/.github/ci/in_container.sh

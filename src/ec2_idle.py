@@ -32,7 +32,8 @@ class AwsError(RuntimeError):
 
 
 def run(*args, timeout=15):
-    return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          universal_newlines=True, timeout=timeout)
 
 
 # Activity -----------------------------------------------------------------
@@ -199,7 +200,9 @@ def instance_context():
             role = _imds(connection, "GET", "/latest/meta-data/iam/security-credentials/",
                          headers).split()[0]
         except (RuntimeError, IndexError):
-            raise RuntimeError("No IAM role is attached to this instance") from None
+            raise RuntimeError("No IAM role is attached to this instance. Attach the role the stack created "
+                               "(the AttachRoleCommand output, or EC2 console -> Actions -> Security -> "
+                               "Modify IAM role), wait a minute, then run this again") from None
         credentials = json.loads(_imds(
             connection, "GET", f"/latest/meta-data/iam/security-credentials/{role}", headers))
     finally:
@@ -457,8 +460,9 @@ def check(cfg, expect_session=False, test_email=False):
         sessions = remote_sessions()
         ok(f"Login session check works ({sessions} remote session(s) now)")
         if expect_session and not sessions:
-            fail("Your current SSH session was not detected. sshd must use PAM "
-                 "(UsePAM yes) with pam_systemd, which is the Ubuntu default.")
+            fail("Your current login was not seen as a session, so the timer could stop the instance "
+                 "while you are connected. On Debian and Ubuntu run: sudo apt install libpam-systemd. "
+                 "sshd also needs UsePAM yes. Then log in again and re-run this.")
     except (OSError, subprocess.SubprocessError) as error:
         fail(f"Login session check failed: {error}")
     try:
@@ -479,8 +483,9 @@ def check(cfg, expect_session=False, test_email=False):
         ctx = instance_context()
         ok(f"Instance {label(cfg, ctx)} in {ctx['region']} with role {ctx['role']}")
     except (OSError, RuntimeError, ValueError, KeyError) as error:
-        fail(f"Instance metadata or role: {error}. Run this on the EC2 instance itself; if you "
-             "just attached the role, wait a minute and try again.")
+        fail(f"Instance metadata or role: {error}. Run this on the EC2 instance itself. Instance "
+             "metadata must be enabled (EC2 console -> Actions -> Instance settings -> Modify "
+             "instance metadata options).")
         ctx = None
     if ctx:
         try:

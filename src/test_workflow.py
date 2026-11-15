@@ -100,14 +100,14 @@ class IdleTests(Case):
             self.check(now)
         self.assertEqual([name for name, _, _ in calls.mock_calls], ["publish", "stop", "publish"])
         (_, _, warn_subject, warn_body), (_, _, stop_subject, stop_body) = [
-            c.args for c in self.publish.call_args_list]
+            c[0] for c in self.publish.call_args_list]
         self.assertEqual(warn_subject, "EC2 dev-box (i-test) will stop in 1 minute")
         self.assertIn("has had no activity for 1 minute.", warn_body)
         self.assertEqual(stop_subject, "EC2 dev-box (i-test) has stopped")
         self.assertIn("https://wake.example/", stop_body)
         self.assertIn("curl -d pin=YOUR_PIN -d action=wake https://wake.example/", stop_body)
         for text in (warn_subject, stop_subject):
-            self.assertTrue(text.isascii() and len(text) < 100)
+            self.assertTrue(all(ord(ch) < 128 for ch in text) and len(text) < 100)
 
     def test_one_warning_per_hour_even_across_idle_cycles(self):
         self.check(1000)
@@ -126,7 +126,7 @@ class IdleTests(Case):
         self.wall.return_value = 50_000 + 61 * 60
         self.check(1190)
         self.check(1250)                       # new cycle after an hour may warn again
-        warnings = [c for c in self.publish.call_args_list if "will stop" in c.args[2]]
+        warnings = [c for c in self.publish.call_args_list if "will stop" in c[0][2]]
         self.assertEqual(len(warnings), 2)
 
     def test_stopped_email_is_sent_once_and_never_blocks_the_stop(self):
@@ -139,7 +139,7 @@ class IdleTests(Case):
         for now in range(1180, 1780, 60):      # still running 10 min later: stop is retried
             self.check(now)
         self.assertEqual(self.stop.call_count, 2)
-        stopped = [c for c in self.publish.call_args_list if "has stopped" in c.args[2]]
+        stopped = [c for c in self.publish.call_args_list if "has stopped" in c[0][2]]
         self.assertEqual(len(stopped), 1)
 
     def test_delayed_email_preserves_full_warning_window(self):
@@ -311,7 +311,7 @@ class SigningTests(Case):
             with self.assertRaises(ec2_idle.AwsError) as raised:
                 ec2_idle.stop_instance(ctx, dry_run=True)
         self.assertEqual(raised.exception.code, "DryRunOperation")
-        body = connection.request.call_args.kwargs["body"].decode()
+        body = connection.request.call_args[1]["body"].decode()
         self.assertIn("DryRun=true", body)
         self.assertIn("InstanceId.1=i-test", body)
 
@@ -357,8 +357,8 @@ class WakeClientTests(Case):
                 patch.object(ec2_up.socket, "create_connection",
                              side_effect=[ConnectionRefusedError, conn]) as connect:
             self.assertEqual(ec2_up.wait_for_ssh(self.args), ("192.0.2.10", conn))
-        self.assertEqual({c.args[1] for c in call.call_args_list}, {"wake"})
-        self.assertTrue(all(c.args[2] > 0 for c in call.call_args_list))   # the page does the waiting
+        self.assertEqual({c[0][1] for c in call.call_args_list}, {"wake"})
+        self.assertTrue(all(c[0][2] > 0 for c in call.call_args_list))   # the page does the waiting
         self.assertEqual(connect.call_count, 2)
 
     def test_running_instance_at_a_fixed_address_never_calls_the_wake_page(self):
@@ -368,8 +368,8 @@ class WakeClientTests(Case):
                 patch.object(ec2_up.socket, "create_connection", return_value=conn) as connect:
             self.assertEqual(ec2_up.wait_for_ssh(self.args), ("203.0.113.5", conn))
         call.assert_not_called()
-        self.assertEqual(connect.call_args.args[0], ("203.0.113.5", 22))
-        self.assertEqual(connect.call_args.kwargs["timeout"], ec2_up.FAST_TIMEOUT)
+        self.assertEqual(connect.call_args[0][0], ("203.0.113.5", 22))
+        self.assertEqual(connect.call_args[1]["timeout"], ec2_up.FAST_TIMEOUT)
 
     def test_stopped_instance_falls_back_to_the_wake_page_and_uses_its_ip(self):
         self.args.host = "203.0.113.5"
@@ -380,7 +380,7 @@ class WakeClientTests(Case):
                              side_effect=[OSError("timed out"), conn]) as connect:
             self.assertEqual(ec2_up.wait_for_ssh(self.args), ("192.0.2.10", conn))
         call.assert_called_once()
-        self.assertEqual([c.args[0] for c in connect.call_args_list],
+        self.assertEqual([c[0][0] for c in connect.call_args_list],
                          [("203.0.113.5", 22), ("192.0.2.10", 22)])
 
     def test_gives_up_with_the_last_state_after_the_timeout(self):
@@ -410,7 +410,7 @@ class WakeClientTests(Case):
         with patch.object(ec2_up, "wait_for_ssh", return_value=("192.0.2.10", MagicMock())) as waiting:
             ec2_up.main(["https://wake.example", "203.0.113.5", "2222", "--pin-file", str(pin_file),
                          "--check"])
-        args = waiting.call_args.args[0]
+        args = waiting.call_args[0][0]
         self.assertEqual((args.pin, args.host, args.port), ("4821", "203.0.113.5", 2222))
         self.assertIn("192.0.2.10:2222", out.getvalue())
         with patch.dict(os.environ, {"EC2_WAKE_PIN": ""}), self.assertRaises(SystemExit):
@@ -723,15 +723,22 @@ class LambdaTests(Case):
         self.ec2.start_instances.assert_not_called()
 
 
+class DocsTests(Case):
+    def test_docs_match_the_code(self):
+        import check_docs
+        self.assertEqual(check_docs.problems(), [], "the docs drifted from the code: python src/check_docs.py")
+
+
 class TemplateTests(Case):
     def test_the_stack_form_stays_small(self):
         template = (HERE / "ec2-idle-stack.yaml").read_text(encoding="utf-8")
-        section = template.split("\nParameters:\n", 1)[1].split("\nConditions:\n", 1)[0]
+        section = template.split("\nParameters:\n", 1)[1].split("\nRules:\n", 1)[0]
         names = [line.strip().rstrip(":") for line in section.splitlines()
                  if line.startswith("  ") and not line.startswith("   ") and line.rstrip().endswith(":")]
         self.assertEqual(sorted(names), sorted([
-            "InstanceId", "WakePin", "NotificationEmail",
-            "WorkHoursStart", "BackupAlarmHours", "InstanceRoleName", "EbsKmsKeyArn", "SshUser"]))
+            "InstanceId", "WakePin", "NotificationEmail",       # Basic
+            "WorkHoursStart", "WarnMinutes", "StopMinutes", "BackupAlarmHours",
+            "EnableSessionManager", "InstanceRoleName", "EbsKmsKeyArn", "SshUser"]))   # Advanced
 
     def test_template_embeds_the_current_lambda_code(self):
         lines = (HERE / "ec2-idle-stack.yaml").read_text(encoding="utf-8").splitlines()

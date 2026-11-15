@@ -67,9 +67,27 @@ The rest of this page is written **for the AI agent**. It turns [SETUP.md](SETUP
 | 🔒 **G1** | Read-only look at **one** profile and Region (`discover.sh`) | "May I look at your AWS account, read-only, in profile `<P>` and Region `<R>`? It changes nothing." |
 | 🔒 **G2** | Check the Free or Paid plan (a billing read) | "May I also check whether you're on the Free or Paid plan?" |
 | ✏️ **G3** | Create or update the CloudFormation stack | "Here's the plan. May I create stack `ec2-idle`?" |
-| ✏️ **G4** | Attach the role, set up a fixed IP, open temporary SSH access, install the timer | Ask **each** one separately. Any temporary SSH rule must be removed again when you're done. |
+| ✏️ **G4** | Attach the role, set up a fixed IP, open temporary SSH access, install the timer | Ask **each** one separately. Any temporary SSH rule must be removed again when you're done (`temp_ssh.sh close`, or the API equivalent). Keep it short: 30 minutes unless the user wants longer. |
 | ✏️ **G5** | The live test, which stops the instance | "May I run the live test? Your instance will stop. Please save your work." |
 | ✏️ **G6** | Remove resources | Only when the user asks. Confirm each item. |
+
+---
+
+### Autopilot defaults
+
+If the user says "use the defaults", or leaves a question unanswered, take the **Default** in the interview below and carry on. The gates above still apply, so you still ask before each AWS action. Write what you assumed into the plan, so they can change it before G3.
+
+| Setting | Default used | Where it goes |
+|---|---|---|
+| Idle times | warn 30, stop 45 minutes | `WarnMinutes`, `StopMinutes` |
+| Email | none. This is the one thing worth asking, because warnings need it | `NotificationEmail` |
+| IP address | keep the existing one, otherwise a changing IP | – |
+| Daily start | off | `WorkHoursStart` |
+| Long jobs | none | `--probe` |
+| Backup alarm | off | `BackupAlarmHours` |
+| Shell on the instance | the way they use today. Session Manager when discovery finds no SSH route | `EnableSessionManager` |
+| Temporary SSH rule | their IP only, for 30 minutes | `temp_ssh.sh --minutes` |
+| SSH login name | from the image: `ubuntu`, `ec2-user` or `admin` | `SshUser` |
 
 ---
 
@@ -86,8 +104,8 @@ Ask only what discovery can't answer, all in **one message**, and show the defau
 | 5 | Start automatically on work days? If yes, which days, what time and which time zone? (It becomes one setting, for example `cron(0 9 ? * MON-FRI *)\|Asia/Kolkata`.) | Off |
 | 6 | Anything that must keep running after you disconnect (agents, builds, training)? | None |
 | 7 | Optional backup alarm that emails you if the idle timer ever stops working (free, off by default)? If yes: how many quiet hours (try 4)? It emails only, and needs an email address. | Off |
-| 8 | How will you connect: wake page, terminal, or automatic SSH? **How do you get a shell on the instance today?** (SSH, EC2 Instance Connect, an endpoint, Session Manager.) The installer must run there. | Wake page and terminal |
-| 9 | Idle times? | Warn at 30, stop at 45 |
+| 8 | How will you connect: wake page, terminal, or automatic SSH? **How do you get a shell on the instance today?** (SSH, EC2 Instance Connect, an endpoint, Session Manager.) The installer must run there. If they have no way in, offer **Session Manager** (`EnableSessionManager=yes`, nothing to open) before a temporary SSH rule. | Wake page and terminal. Session Manager if there's no shell. |
+| 9 | Idle times? (They become `WarnMinutes` and `StopMinutes`.) | Warn at 30, stop at 45 |
 
 ---
 
@@ -116,7 +134,8 @@ aws freetier get-account-plan-state --region us-east-1       # Free or Paid plan
 | Fixed IP | `ec2:DescribeAddresses` |
 | SSH exposure | `ec2:DescribeSecurityGroupRules` for the instance's groups. For port 22 (or protocol `-1`), look at **all** sources: CIDRs, prefix lists and referenced groups. Only CIDRs and prefix lists can reach the instance from outside. |
 | Instance Connect route | `ec2:DescribeManagedPrefixLists` (name `com.amazonaws.<REGION>.ec2-instance-connect`) and `ec2:DescribeInstanceConnectEndpoints` |
-| Windows | `Platform` = `windows` in `ec2:DescribeInstances` means `UNSUPPORTED` |
+| Windows and Mac | `Platform` = `windows` in `ec2:DescribeInstances`, or an instance type starting with `mac`, means `UNSUPPORTED` |
+| Can it stop and start? | `ec2:DescribeInstanceAttribute` (`disableApiStop` must be false), `ec2:DescribeTags` (a tag `aws:autoscaling:groupName` means `UNSUPPORTED`), `ec2:DescribeInstanceTypes` (`InstanceStorageSupported` means local disks lose their data on every stop) |
 | Disk encryption | `ec2:DescribeVolumes` plus `kms:DescribeKey`. A `CUSTOMER` key means set `EbsKmsKeyArn`. |
 | Existing stack | `cloudformation:DescribeStacks` |
 | Plan, G2 only | `freetier:GetAccountPlanState` |
@@ -128,7 +147,7 @@ aws freetier get-account-plan-state --region us-east-1       # Free or Paid plan
 | Finding | Do |
 |---|---|
 | `UNSUPPORTED` | Stop. Explain that this instance can't be stopped and started. |
-| `CHECK` | Ask the user to confirm. For "no SSH route from outside", ask how they reach the instance. Offer a temporary port 22 rule for their IP (/32) as a separate G4 action, and remove it afterwards. |
+| `CHECK` | Ask the user to confirm. For "no SSH route from outside", ask how they reach the instance. Offer Session Manager (`EnableSessionManager=yes`) first, or a temporary port 22 rule for their IP (/32) with `temp_ssh.sh` as a separate G4 action, and remove it afterwards. |
 | `KEEP` | Keep it as is, for example an Elastic IP that's already attached. Skip SETUP Step 3b. |
 | `NOTE` | Show it in the plan, for example "your existing role `<ROLE>` will get the stack's policy added". |
 | `FIX` | Explain the fix. Making the change itself needs G4. |
@@ -176,9 +195,9 @@ Expect:   a first test cycle sends 3 emails: setup test, one warning, one "stopp
 | 4.4 | – | Ask the user to confirm the subscription email **now, before 4.7**, and wait for their "done". If they turned on the backup alarm, mention that an "ALARM" email may also arrive (see the plan). | The user confirms |
 | 4.5 | G4 | Attach the role, if `AttachRoleCommand` exists: `ec2:AssociateIamInstanceProfile`. Then **wait about 60 seconds** for it to take effect. | `"State": "associating"` |
 | 4.6 | G4 | Set up a new fixed IP, if chosen (SETUP Step 3b). Skip if one is already attached. | The fixed IP |
-| 4.7 | G4 | **On the instance**, never on the user's computer: `git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git`, then `cd ec2-idle-stop-wake/src`, then `GuestInstallCommand` (it already includes `--topic` and `--wake-url`), adding `--probe` and `--name` if wanted. If you have no shell on the instance, give the user these exact commands for their terminal (SSH, Instance Connect or Session Manager). | `All checks passed.` then `Installed.` |
+| 4.7 | G4 | Get a shell on the instance first (SETUP Step 4): Session Manager, the way they already use, or `bash temp_ssh.sh open <INSTANCE_ID> --minutes 30`. The API equivalent is `ec2:AuthorizeSecurityGroupIngress` for their IP as a /32 on port 22, tagged `Purpose=ec2-idle-temp`. Then **on the instance**, never on the user's computer: `git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git`, then `cd ec2-idle-stop-wake/src`, then `GuestInstallCommand` (it already includes `--topic` and `--wake-url`), adding `--probe` and `--name` if wanted. If you have no shell on the instance, give the user these exact commands for their terminal (SSH, Instance Connect or Session Manager). | `All checks passed.` then `Installed.` |
 | 4.7b | – | Confirm on the instance: `systemctl list-timers ec2-idle.timer --no-pager`. "0 timers listed" means the install didn't happen there. If the user reports success, still ask for this output. | One timer listed |
-| 4.7c | G4 | If you opened temporary SSH access, remove that rule now (`ec2:RevokeSecurityGroupIngress` by rule ID). | The rule is gone |
+| 4.7c | G4 | If you opened temporary SSH access, remove that rule now: `bash temp_ssh.sh close <INSTANCE_ID>`, or `ec2:RevokeSecurityGroupIngress` by rule ID. Check with `bash temp_ssh.sh status <INSTANCE_ID>`. | "no temporary rule is open" |
 | 4.8 | – | Set up the chosen way to connect (SETUP Step 5). Edit SSH config only with the user's OK, and never inside the repo. | `ssh -G <alias>` shows the setting |
 
 <details>

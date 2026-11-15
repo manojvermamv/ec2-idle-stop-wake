@@ -9,7 +9,8 @@ Metadata:
       - Label: {default: "Basic (instance, PIN and email)"}
         Parameters: [InstanceId, WakePin, NotificationEmail]
       - Label: {default: Advanced (all optional)}
-        Parameters: [WorkHoursStart, BackupAlarmHours, InstanceRoleName, EbsKmsKeyArn, SshUser]
+        Parameters: [WorkHoursStart, WarnMinutes, StopMinutes, BackupAlarmHours, EnableSessionManager,
+                     InstanceRoleName, EbsKmsKeyArn, SshUser]
 
 Parameters:
   InstanceId:
@@ -49,6 +50,28 @@ Parameters:
     Default: ""
     AllowedPattern: "^$|^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
     Description: Optional. Email for idle warnings and alarms. Confirm the subscription email.
+  WarnMinutes:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 1440
+    Description: Optional. Idle minutes before the warning email. It goes into the install command (GuestInstallCommand).
+  StopMinutes:
+    Type: Number
+    Default: 45
+    MinValue: 2
+    MaxValue: 1440
+    Description: >-
+      Optional. Idle minutes before the instance stops. It must be more than WarnMinutes, and the
+      installer checks that. It goes into the install command (GuestInstallCommand).
+  EnableSessionManager:
+    Type: String
+    AllowedValues: ["no", "yes"]
+    Default: "no"
+    Description: >-
+      Optional. yes = a browser shell through AWS Systems Manager Session Manager, with no SSH port,
+      key or security group change. It adds the AmazonSSMManagedInstanceCore policy to the role this
+      stack creates, so leave InstanceRoleName empty. With your own role, attach that policy yourself.
   WorkHoursStart:
     Type: String
     Default: ""
@@ -67,7 +90,17 @@ Parameters:
       after this many hours of running below 3 percent CPU (try 4). 0 = no alarm. Needs
       NotificationEmail. A long quiet session, such as an open editor, can also trigger it.
 
+Rules:
+  SessionManagerNeedsTheNewRole:
+    RuleCondition: !Equals [!Ref EnableSessionManager, "yes"]
+    Assertions:
+      - Assert: !Equals [!Ref InstanceRoleName, ""]
+        AssertDescription: >-
+          EnableSessionManager only works when this stack creates the role. Leave InstanceRoleName empty,
+          or attach the AmazonSSMManagedInstanceCore policy to your own role and set EnableSessionManager to no.
+
 Conditions:
+  UseSessionManager: !Equals [!Ref EnableSessionManager, "yes"]
   HasEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
   CreateRole: !Equals [!Ref InstanceRoleName, ""]
   HasSchedule: !Not [!Equals [!Ref WorkHoursStart, ""]]
@@ -92,6 +125,10 @@ Resources:
     Condition: CreateRole
     Properties:
       Description: Instance role for the EC2 idle watcher.
+      ManagedPolicyArns: !If
+        - UseSessionManager
+        - [!Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"]
+        - !Ref AWS::NoValue
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -788,8 +825,11 @@ Outputs:
     Description: Run ON THE INSTANCE (not your computer), inside ec2-idle-stop-wake/src after git clone.
     Value: !If
       - HasEmail
-      - !Sub "bash install_guest.sh --topic ${AlertTopic} --wake-url ${WakeUrl.FunctionUrl}"
-      - !Sub "bash install_guest.sh --wake-url ${WakeUrl.FunctionUrl}"
+      - !Sub "bash install_guest.sh --topic ${AlertTopic} --wake-url ${WakeUrl.FunctionUrl} --warn ${WarnMinutes} --stop ${StopMinutes}"
+      - !Sub "bash install_guest.sh --wake-url ${WakeUrl.FunctionUrl} --warn ${WarnMinutes} --stop ${StopMinutes}"
+  ConnectInBrowser:
+    Description: Opens the EC2 connect page for the instance. With EnableSessionManager there is a Session Manager tab that needs no SSH port.
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/ec2/home?region=${AWS::Region}#ConnectToInstance:instanceId=${InstanceId}"
   AttachRoleCommand:
     Condition: CreateRole
     Description: Run once in CloudShell to give the instance its new role.

@@ -4,7 +4,7 @@
 
 Your EC2 instance (a computer you rent from AWS) turns itself off when you stop working, and it turns back on with one tap from any browser, phone or terminal. You set it up once, and nothing has to keep running on your own computer.
 
-![Setup](https://img.shields.io/badge/setup-one%20time-0972d3) ![AWS Free plan](https://img.shields.io/badge/AWS%20Free%20plan-compatible-037f0c) ![Python](https://img.shields.io/badge/python-3.8%2B-3776ab) ![Client tools](https://img.shields.io/badge/client%20tools-none%20required-5f6b7a)
+![Setup](https://img.shields.io/badge/setup-one%20time-0972d3) ![AWS Free plan](https://img.shields.io/badge/AWS%20Free%20plan-compatible-037f0c) ![Python](https://img.shields.io/badge/python-3.6%2B-3776ab) ![Client tools](https://img.shields.io/badge/client%20tools-none%20required-5f6b7a)
 
 > [!TIP]
 > **In short**
@@ -192,7 +192,7 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 
 | You need | Notes |
 |---|---|
-| 🖥️ An EC2 instance with an **EBS disk** | Most instances have one. It needs Linux with systemd and Python 3.8 or newer. Tested on Ubuntu 24.04. Ubuntu 20.04+, Debian 11+ and Amazon Linux 2023 should work but haven't been tested. |
+| 🖥️ An EC2 instance with an **EBS disk** | Most instances have one. It needs Linux with systemd and Python 3.6 or newer. The installer installs Python for you if it's missing. |
 | ☁️ Access to the **AWS console** | Its built-in terminal, **CloudShell**, can do the AWS work, so you install nothing on your computer. On a brand-new account CloudShell may not open for up to two days. The setup guide has console steps for that. |
 | 🔐 A way to connect over **SSH** | The way you connect today is fine. |
 
@@ -234,11 +234,12 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 |---|---|---|
 | [ec2-idle-stack.yaml](src/ec2-idle-stack.yaml) | ☁️ AWS CloudFormation | Wake page, permissions, email, optional schedule and optional backup alarm |
 | [discover.sh](src/discover.sh) | ☁️ AWS CloudShell | Read-only check of the 5 things that can block setup |
-| [install_guest.sh](src/install_guest.sh) | 🖥️ Your EC2 instance | One-time install, or uninstall, of the idle timer |
+| [install_guest.sh](src/install_guest.sh) | 🖥️ Your EC2 instance | One-time install, or uninstall, of the idle timer. Installs missing prerequisites. |
+| [temp_ssh.sh](src/temp_ssh.sh) | ☁️ AWS CloudShell | Opens, and closes, a temporary SSH rule for your IP only, when you need a shell |
 | [ec2_idle.py](src/ec2_idle.py), [ec2-idle.service](src/ec2-idle.service), [ec2-idle.timer](src/ec2-idle.timer), [ec2-idle.conf](src/ec2-idle.conf) | 🖥️ Your EC2 instance | Idle timer program and settings |
 | [wake_ec2.py](src/wake_ec2.py) | ☁️ AWS Lambda | Wake page program (built into the stack file) |
 | [ec2_up.py](src/ec2_up.py) | 💻 Your computer, optional | Your normal `ssh` waits while a stopped instance wakes, then connects |
-| [test_workflow.py](src/test_workflow.py), [sync_template.py](src/sync_template.py) | 🧪 Anywhere | Tests and maintenance |
+| [test_workflow.py](src/test_workflow.py), [check_docs.py](src/check_docs.py), [sync_template.py](src/sync_template.py) | 🧪 Anywhere | Tests, a check that the docs match the code, and maintenance |
 
 </details>
 
