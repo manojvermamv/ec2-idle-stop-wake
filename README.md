@@ -65,10 +65,10 @@ Choose one way. All three end with the same setup.
 
 ### 🤖 Let an AI agent do it
 
-Copy this into your AI assistant. Replace `<THIS_FOLDER_URL>` with this folder's GitHub link.
+Copy this into your AI assistant:
 
 ```text
-Set up EC2 idle stop and wake for me by following AGENT_SETUP.md at <THIS_FOLDER_URL>. Ask my permission before any AWS discovery and before every change.
+Set up EC2 idle stop and wake for me by following AGENT_SETUP.md at https://github.com/manojvermamv/ec2-idle-stop-wake. Ask my permission before any AWS discovery and before every change.
 ```
 
 The assistant will:
@@ -80,7 +80,7 @@ The assistant will:
 To only look and change nothing, use:
 
 ```text
-Follow AGENT_SETUP.md at <THIS_FOLDER_URL> up to the plan step only. Run read-only discovery if I agree, and change nothing.
+Follow AGENT_SETUP.md at https://github.com/manojvermamv/ec2-idle-stop-wake up to the plan step only. Run read-only discovery if I agree, and change nothing.
 ```
 
 > [!NOTE]
@@ -188,7 +188,7 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 | **EBS** | The instance's disk. It keeps your files while the instance is stopped. |
 | **Elastic IP** | A fixed internet address. Optional. |
 | **CloudShell** | A terminal inside the AWS console that's already signed in. |
-| **CloudFormation stack** | A bundle of AWS pieces created and removed together from one file (`ec2-idle-stack.yaml`). |
+| **CloudFormation stack** | A bundle of AWS pieces created and removed together from one file (`src/ec2-idle-stack.yaml`). |
 | **Wake key** | The password for your wake page. |
 | **SSH** | The usual way to connect to a Linux machine. VS Code and Cursor use it too. |
 | **Region** | The AWS location where your instance lives, for example Sydney. |
@@ -208,17 +208,17 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 | 🧠 | [WORKFLOW.md](WORKFLOW.md) | You're curious how and why it works. |
 
 <details>
-<summary><b>Files in this folder</b></summary>
+<summary><b>Files in <code>src/</code></b></summary>
 
 | File | Runs on | Purpose |
 |---|---|---|
-| [ec2-idle-stack.yaml](ec2-idle-stack.yaml) | ☁️ AWS CloudFormation | Wake page, permissions, email, optional schedule and backup alarm |
-| [discover.sh](discover.sh) | ☁️ AWS CloudShell | Read-only check of your account, with suggested settings |
-| [install_guest.sh](install_guest.sh) | 🖥️ Your EC2 instance | One-time install, or uninstall, of the idle timer |
-| [ec2_idle.py](ec2_idle.py), [ec2-idle.service](ec2-idle.service), [ec2-idle.timer](ec2-idle.timer), [ec2-idle.conf](ec2-idle.conf) | 🖥️ Your EC2 instance | Idle timer program and settings |
-| [wake_ec2.py](wake_ec2.py) | ☁️ AWS Lambda | Wake page program (built into the stack file) |
-| [ec2_up.py](ec2_up.py) | 💻 Your computer, optional | Lets `ssh` wake the instance by itself |
-| [test_workflow.py](test_workflow.py), [verify_guest.sh](verify_guest.sh), [sync_template.py](sync_template.py) | 🧪 Anywhere | Tests and maintenance |
+| [ec2-idle-stack.yaml](src/ec2-idle-stack.yaml) | ☁️ AWS CloudFormation | Wake page, permissions, email, optional schedule and backup alarm |
+| [discover.sh](src/discover.sh) | ☁️ AWS CloudShell | Read-only check of your account, with suggested settings |
+| [install_guest.sh](src/install_guest.sh) | 🖥️ Your EC2 instance | One-time install, or uninstall, of the idle timer |
+| [ec2_idle.py](src/ec2_idle.py), [ec2-idle.service](src/ec2-idle.service), [ec2-idle.timer](src/ec2-idle.timer), [ec2-idle.conf](src/ec2-idle.conf) | 🖥️ Your EC2 instance | Idle timer program and settings |
+| [wake_ec2.py](src/wake_ec2.py) | ☁️ AWS Lambda | Wake page program (built into the stack file) |
+| [ec2_up.py](src/ec2_up.py) | 💻 Your computer, optional | Lets `ssh` wake the instance by itself |
+| [test_workflow.py](src/test_workflow.py), [verify_guest.sh](src/verify_guest.sh), [sync_template.py](src/sync_template.py) | 🧪 Anywhere | Tests and maintenance |
 
 </details>
 

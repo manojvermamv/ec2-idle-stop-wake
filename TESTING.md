@@ -30,7 +30,7 @@ Each level proves a bit more. The first five never stop your instance.
 **▶ Run in:** any computer with Python 3.8 or newer. No AWS access is needed.
 
 ```bash
-python -B -m unittest discover -s ec2-idle-workflow -v
+python -B -m unittest discover -s src -v
 ```
 
 **You should see:** `OK` at the end.
@@ -55,7 +55,7 @@ python -B -m unittest discover -s ec2-idle-workflow -v
 **▶ Run in:** any computer
 
 ```bash
-pip install cfn-lint && cfn-lint ec2-idle-workflow/ec2-idle-stack.yaml
+pip install cfn-lint && cfn-lint src/ec2-idle-stack.yaml
 ```
 
 **You should see:** no output.
@@ -65,7 +65,7 @@ pip install cfn-lint && cfn-lint ec2-idle-workflow/ec2-idle-stack.yaml
 **▶ Run in:** CloudShell · 🔒 **Changes nothing**
 
 ```bash
-bash discover.sh --instance <INSTANCE_ID>
+cd ec2-idle-stop-wake/src && bash discover.sh --instance <INSTANCE_ID>
 ```
 
 **You should see:** no `UNSUPPORTED` or `FIX` lines under **Findings**.
@@ -82,7 +82,7 @@ sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idl
 
 ## 🟡 Level 5: Practice run
 
-**▶ Run in:** the instance, from the copied folder. It uses a temporary timer with 1- and 2-minute times and a fake job, and **never stops** the instance.
+**▶ Run in:** the instance, in `~/ec2-idle-stop-wake/src`. It uses a temporary timer with 1- and 2-minute times and a fake job, and **never stops** the instance.
 
 ```bash
 sudo -v && bash verify_guest.sh
@@ -131,10 +131,10 @@ sudo -v && bash verify_guest.sh
 
 | You changed | Then run |
 |---|---|
-| `wake_ec2.py` | `python sync_template.py`, then levels 1 and 2, then update the stack |
-| `ec2_idle.py` or the timer files | Level 1, then the installer again (levels 4 and 5) |
-| `ec2-idle-stack.yaml` | Level 2, then update the stack |
-| `ec2_up.py` | Level 1, then connect with `ssh ec2-workspace` |
+| `src/wake_ec2.py` | `python src/sync_template.py`, then levels 1 and 2, then update the stack |
+| `src/ec2_idle.py` or the timer files | Level 1, then the installer again (levels 4 and 5) |
+| `src/ec2-idle-stack.yaml` | Level 2, then update the stack |
+| `src/ec2_up.py` | Level 1, then connect with `ssh ec2-workspace` |
 
 ## 📋 Results so far
 

@@ -1,4 +1,4 @@
-"""Run with: python -B -m unittest discover -s ec2-idle-workflow -v  (Python 3.8 or newer)."""
+"""Run with: python -B -m unittest discover -s src -v  (Python 3.8 or newer)."""
 
 import base64
 import contextlib

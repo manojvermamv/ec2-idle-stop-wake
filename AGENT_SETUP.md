@@ -3,15 +3,15 @@
 [README](README.md) · [How it works](WORKFLOW.md) · [Setup](SETUP.md) · [Runbook](RUNBOOK.md) · [Testing](TESTING.md)
 
 > [!TIP]
-> **For you, the person.** Paste one of these into your AI assistant (Claude Code, Codex, Cursor and others), with `<THIS_FOLDER_URL>` replaced by this folder's GitHub link.
+> **For you, the person.** Paste one of these into your AI assistant (Claude Code, Codex, Cursor and others).
 >
 > **Full setup:**
 > ```text
-> Set up EC2 idle stop and wake for me by following AGENT_SETUP.md at <THIS_FOLDER_URL>. Ask my permission before any AWS discovery and before every change.
+> Set up EC2 idle stop and wake for me by following AGENT_SETUP.md at https://github.com/manojvermamv/ec2-idle-stop-wake. Ask my permission before any AWS discovery and before every change.
 > ```
 > **Look only, change nothing:**
 > ```text
-> Follow AGENT_SETUP.md at <THIS_FOLDER_URL> up to the plan step only. Run read-only discovery if I agree, and change nothing.
+> Follow AGENT_SETUP.md at https://github.com/manojvermamv/ec2-idle-stop-wake up to the plan step only. Run read-only discovery if I agree, and change nothing.
 > ```
 >
 > **What the assistant will do:**
@@ -62,7 +62,7 @@ The rest of this page is written **for the AI agent**. It turns [SETUP.md](SETUP
 
 | Gate | What it allows | Ask |
 |---|---|---|
-| 📂 G0 | Read this folder and run the unit tests | No need to ask |
+| 📂 G0 | Read this repository and run the unit tests | No need to ask |
 | 🔒 **G1** | Read-only look at **one** profile and Region (`discover.sh`) | "May I look at your AWS account, read-only, in profile `<P>` and Region `<R>`? It changes nothing." |
 | 🔒 **G2** | Check the Free or Paid plan (a billing read) | "May I also check whether you're on the Free or Paid plan?" |
 | ✏️ **G3** | Create or update the CloudFormation stack | "Here's the plan. May I create stack `ec2-idle`?" |
@@ -95,6 +95,7 @@ Ask only what discovery can't answer, all in **one message**, and show the defau
 **▶ Run in:** CloudShell, or your AWS access · 🔒 **Changes nothing**
 
 ```bash
+git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git && cd ec2-idle-stop-wake/src
 bash discover.sh --region <REGION>                                          # instances and existing stack
 bash discover.sh --region <REGION> --instance <INSTANCE_ID>                 # checks and suggested settings
 bash discover.sh --region <REGION> --instance <INSTANCE_ID> --include-plan  # only with G2
@@ -164,7 +165,7 @@ Cost:     about US$0 for the AWS pieces; compute only while running;
 | 4.4 | – | Remind the user to confirm the subscription email. | The user confirms |
 | 4.5 | G4 | Run `AttachRoleCommand`, if it exists. | `"State": "associating"` |
 | 4.6 | G4 | Set up the fixed IP, if chosen (SETUP Step 3b). | The fixed IP |
-| 4.7 | G4 | Copy the folder to the instance and run `GuestInstallCommand`, adding `--probe` if needed. If you can't connect over SSH, give the user the commands instead. | `All checks passed.` then `Installed.` |
+| 4.7 | G4 | On the instance, run `git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git`, then `cd ec2-idle-stop-wake/src` and `GuestInstallCommand`, adding `--probe` if needed. If you can't connect over SSH, give the user the commands instead. | `All checks passed.` then `Installed.` |
 | 4.8 | – | Set up the chosen way to connect (SETUP Step 5). Edit SSH config only with the user's OK, and never inside the repo. | `ssh -G <alias>` shows the setting |
 
 ---

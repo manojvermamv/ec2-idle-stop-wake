@@ -45,10 +45,11 @@ Collect the values the next steps need. You can let a script find most of them, 
 
 **▶ Run in:** CloudShell · 🔒 **Changes nothing**
 
-1. In CloudShell, choose **Actions → Upload file** and upload `discover.sh`.
+1. In CloudShell, download this project (CloudShell already has `git`).
 2. Run:
 
 ```bash
+git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git && cd ec2-idle-stop-wake/src
 bash discover.sh                           # lists your instances
 bash discover.sh --instance <INSTANCE_ID>  # checks one and suggests settings
 ```
@@ -105,12 +106,12 @@ $b = [byte[]]::new(20); [Security.Cryptography.RandomNumberGenerator]::Create().
 
 ## Step 2: Create the AWS pieces
 
-This creates everything in one go from the file `ec2-idle-stack.yaml`: the wake page, permissions, email and optional schedule. AWS calls this bundle a **stack**.
+This creates everything in one go from the file `src/ec2-idle-stack.yaml`: the wake page, permissions, email and optional schedule. AWS calls this bundle a **stack**.
 
 **▶ Run in:** AWS console · ✏️ **Changes AWS**
 
 1. Open **CloudFormation → Create stack → With new resources**.
-2. Choose **Upload a template file** and pick `ec2-idle-stack.yaml`.
+2. Choose **Upload a template file** and pick `ec2-idle-stack.yaml`. Download it first from [src/ec2-idle-stack.yaml](https://github.com/manojvermamv/ec2-idle-stop-wake/blob/main/src/ec2-idle-stack.yaml) (**Download raw file**).
 3. Name the stack `ec2-idle`.
 4. Fill in your values from Step 0. Only **InstanceId** and **WakeKeySha256** are required.
 5. Tick the box that acknowledges IAM resources, then choose **Submit**.
@@ -119,7 +120,7 @@ This creates everything in one go from the file `ec2-idle-stack.yaml`: the wake 
 <details>
 <summary>Prefer one command? (CloudShell)</summary>
 
-Upload `ec2-idle-stack.yaml` to CloudShell first. Leave out any optional line you don't need.
+Run it from the `src` folder you downloaded in Step 0. Leave out any optional line you don't need.
 
 ```bash
 aws cloudformation deploy --stack-name ec2-idle --template-file ec2-idle-stack.yaml \
@@ -190,19 +191,21 @@ aws ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].Publi
 
 ## Step 4: Install the idle timer on the instance
 
-**▶ Run in:** your computer, then the instance · ✏️ **Changes the instance**
+**▶ Run in:** the instance · ✏️ **Changes the instance**
 
-1. Copy this folder to the instance and connect:
+1. Connect to the instance and download this project:
 
    ```bash
-   scp -r ec2-idle-workflow <SSH_HOST>:~/
    ssh <SSH_HOST>
+   git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git
+   cd ec2-idle-stop-wake/src
    ```
 
-2. On the instance, paste the **GuestInstallCommand** from Step 2. It looks like this:
+   No `git`? Install it with `sudo apt install -y git` (Ubuntu/Debian) or `sudo dnf install -y git` (Amazon Linux).
+
+2. Paste the **GuestInstallCommand** from Step 2. It looks like this:
 
    ```bash
-   cd ~/ec2-idle-workflow
    bash install_guest.sh --topic <ALERT_TOPIC_ARN>
    ```
 
@@ -282,7 +285,7 @@ Host ec2-workspace
     IdentityFile ~/.ssh/<YOUR_PRIVATE_KEY>
     ConnectTimeout 360
     ServerAliveInterval 30
-    ProxyCommand python /absolute/path/to/ec2_up.py <WAKE_URL> --key-file ~/.ssh/ec2-wake.key --proxy --port %p
+    ProxyCommand python /absolute/path/to/ec2-idle-stop-wake/src/ec2_up.py <WAKE_URL> --key-file ~/.ssh/ec2-wake.key --proxy --port %p
 ```
 
 3. Connect with `ssh ec2-workspace`. VS Code and Cursor can use the same name.

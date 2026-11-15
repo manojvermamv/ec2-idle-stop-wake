@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time install of the idle watcher. Run it over SSH on the instance, from this folder.
+# One-time install of the idle watcher. Run it over SSH on the instance, from the src folder.
 #   bash install_guest.sh [--topic SNS_TOPIC_ARN] [--warn 30] [--stop 45] [--probe /abs/path] [--dry-run]
 #   bash install_guest.sh --uninstall
 # --topic   AlertTopicArn from the stack outputs. Leave it out to stop without warning emails.

@@ -709,7 +709,7 @@ Outputs:
     Description: SNS topic for idle warnings.
     Value: !Ref AlertTopic
   GuestInstallCommand:
-    Description: Run on the instance, inside the copied ec2-idle-workflow folder.
+    Description: Run on the instance, inside ec2-idle-stop-wake/src after git clone.
     Value: !If
       - HasEmail
       - !Sub "bash install_guest.sh --topic ${AlertTopic}"

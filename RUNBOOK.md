@@ -170,7 +170,7 @@ If emails keep failing, the instance still stops after 3 tries, so it doesn't ru
 
 ## 🧹 Remove everything
 
-1. **On the instance**, from the copied folder: `bash install_guest.sh --uninstall`
+1. **On the instance**, in `~/ec2-idle-stop-wake/src`: `bash install_guest.sh --uninstall`
 2. **In CloudShell**, only if the stack created a new role, detach it first:
    ```bash
    aws ec2 describe-iam-instance-profile-associations --filters Name=instance-id,Values=<INSTANCE_ID> \
