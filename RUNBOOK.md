@@ -173,16 +173,26 @@ If emails keep failing, the instance still stops after 3 tries, so it doesn't ru
 
 ## 🧹 Remove everything
 
-1. **On the instance**, in `~/ec2-idle-stop-wake/src`: `bash install_guest.sh --uninstall`
-2. **In CloudShell**, only if the stack created a new role, detach it first:
+Do the steps in this order, so nothing is left behind.
+
+1. **On the instance** (it must be running), in `~/ec2-idle-stop-wake/src`:
+   ```bash
+   bash install_guest.sh --uninstall --purge
+   cd ~ && rm -rf ~/ec2-idle-stop-wake
+   ```
+   `--purge` also deletes the settings file and saved state. Without it, the settings stay and a later install reuses them.
+2. **Detach the role the stack created.** In CloudShell or the console (EC2 → your instance → **Actions → Security → Modify IAM role** → remove the role). Skip this if the stack used your own existing role.
    ```bash
    aws ec2 describe-iam-instance-profile-associations --filters Name=instance-id,Values=<INSTANCE_ID> \
      --query 'IamInstanceProfileAssociations[0].AssociationId' --output text
    aws ec2 disassociate-iam-instance-profile --association-id <ASSOCIATION_ID>
    ```
-3. **Delete the stack:** CloudFormation → `ec2-idle` → **Delete**.
+3. **Delete the stack:** CloudFormation → `ec2-idle` → **Delete**. This removes the wake page, email topic, alarm and the role it created.
 4. **If you made a fixed IP for this,** release it, because it costs money until you do:
    - `aws ec2 disassociate-address --public-ip <IP>`
    - then `aws ec2 release-address --allocation-id <ALLOCATION_ID>`
 
-**You should see:** the stack shows **DELETE_COMPLETE**.
+**You should see:** the stack shows **DELETE_COMPLETE**, and on the instance `systemctl list-timers ec2-idle.timer` lists nothing.
+
+> [!NOTE]
+> **Setting it up again?** A fresh stack gets a **new wake page link** (your wake key can stay the same) and a **new email subscription** to confirm. Update your bookmark, and click the new "Subscription Confirmation" email before running the installer.

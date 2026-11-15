@@ -177,7 +177,7 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 > If you entered an email, AWS sends a **Subscription Confirmation** email. Click **Confirm subscription** now, **before Step 4**, or the installer's test email and later warnings won't arrive.
 
 > [!NOTE]
-> **An email titled "ALARM" right after this step is normal** if the instance was already sitting idle. The backup alarm looks back over the last few hours and sees no timer stopping the instance yet. It clears by itself once the timer is installed and the instance stops.
+> **An email titled "ALARM" within about 20 minutes of this step is normal** if the instance was already sitting idle. The backup alarm looks back over the last few hours and sees no timer stopping the instance yet. It clears by itself once the timer is installed and the instance stops. So during your first test you'll get up to **four** emails: this alarm, the setup test email, one warning, and one "stopped" email.
 
 ---
 

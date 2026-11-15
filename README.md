@@ -62,7 +62,7 @@ Never more than these, so your inbox stays quiet:
 | **"… will stop in 15 minutes"** | After 30 minutes with no activity | **At most once per hour**, even if you come and go |
 | **"… has stopped"** | Right after it stops, with your **wake page link** and a ready-to-copy wake command | **Once per stop** |
 | **"Idle stop is set up"** | When you first install, or change the email topic | Once |
-| **AWS "ALARM"** (backup alarm) | After hours of quiet running, for example an editor left open | Once per incident |
+| **AWS "ALARM"** (backup alarm) | After hours of quiet running, for example an editor left open. You may also get one about 20 minutes after first setup if the instance was already idle. That's normal. | Once per incident |
 
 Email trouble never blocks the stop, so a broken email setup can't leave the instance running and costing money.
 

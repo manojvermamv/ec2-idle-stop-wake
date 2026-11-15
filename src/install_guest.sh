@@ -2,7 +2,7 @@
 # One-time install of the idle watcher. Run it ON THE EC2 INSTANCE, from the src folder.
 #   bash install_guest.sh [--topic SNS_TOPIC_ARN] [--wake-url URL] [--name NAME]
 #                         [--warn 30] [--stop 45] [--probe /abs/path|none] [--test-email] [--dry-run]
-#   bash install_guest.sh --uninstall
+#   bash install_guest.sh --uninstall [--purge]   (--purge also deletes the settings and saved state)
 # --topic, --wake-url  AlertTopicArn and WakePageUrl from the stack outputs (GuestInstallCommand).
 # --name     Friendly name for emails, for example ubuntu-cp.
 # --probe    Executable that exits 0 while background work runs and 1 when idle ("none" clears it).
@@ -11,7 +11,7 @@
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-topic="" wake_url="" name="" probe="" warn=30 stop=45 mode=stop uninstall=0 force_test=0
+topic="" wake_url="" name="" probe="" warn=30 stop=45 mode=stop uninstall=0 purge=0 force_test=0
 set_topic=0 set_wake=0 set_name=0 set_probe=0
 usage() { sed -n '2,10p' "$0"; exit "${1:-0}"; }
 while (($#)); do
@@ -25,6 +25,7 @@ while (($#)); do
         --test-email) force_test=1; shift ;;
         --dry-run) mode=dry-run; shift ;;
         --uninstall) uninstall=1; shift ;;
+        --purge) purge=1; shift ;;
         -h | --help) usage ;;
         *) echo "Unknown option: $1" >&2; usage 2 ;;
     esac
@@ -38,8 +39,16 @@ if ((uninstall)); then
     sudo systemctl stop ec2-idle.service 2>/dev/null || true
     sudo rm -f /etc/systemd/system/ec2-idle.service /etc/systemd/system/ec2-idle.timer \
         /usr/local/sbin/ec2_idle.py
+    sudo rm -rf /run/systemd/system/ec2-idle.service.d /run/ec2-idle-test.env
     sudo systemctl daemon-reload
-    echo "Idle watcher removed. Settings kept in /etc/ec2-idle.conf (sudo rm it if unwanted)."
+    if ((purge)); then
+        sudo rm -rf /etc/ec2-idle.conf /etc/ec2-idle.conf.bak /run/ec2-idle
+        echo "Idle watcher removed completely, including its settings and saved state."
+        echo "Optional: delete this downloaded folder with: rm -rf ~/ec2-idle-stop-wake"
+    else
+        echo "Idle watcher removed. Settings kept in /etc/ec2-idle.conf, so a later install reuses them."
+        echo "For a completely clean removal, run again with: --uninstall --purge"
+    fi
     exit 0
 fi
 

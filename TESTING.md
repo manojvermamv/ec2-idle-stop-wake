@@ -120,6 +120,26 @@ sudo -v && bash verify_guest.sh
 | 6 | Connect and look at your files | Instance | Everything is still there |
 | 7 | `bash install_guest.sh` | Instance | Back to 30 and 45 minutes, with no extra test email |
 
+**Emails to expect in a first test:** up to **four**: the backup "ALARM" (only if the instance was already idle when the stack was created), the setup test email (first install only), one warning, and one "stopped" email with your wake link.
+
+<details>
+<summary>Cleaner way: short timings that disappear at the next boot (no step 7)</summary>
+
+Instead of step 1, keep the normal 30/45 install and add a temporary override that lives only in memory. The next boot, which is the wake in step 5, goes back to 30/45 by itself.
+
+**▶ Run in:** the instance
+
+```bash
+printf 'WARN_MINUTES=2\nSTOP_MINUTES=4\n' | sudo tee /run/ec2-idle-test.env >/dev/null
+sudo mkdir -p /run/systemd/system/ec2-idle.service.d
+printf '[Service]\nEnvironmentFile=/run/ec2-idle-test.env\n' | sudo tee /run/systemd/system/ec2-idle.service.d/test.conf >/dev/null
+sudo systemctl daemon-reload
+```
+
+**You should see:** `systemctl show ec2-idle.service -p EnvironmentFiles` lists `/etc/ec2-idle.conf` first, then `/run/ec2-idle-test.env`. Then continue from step 2.
+
+</details>
+
 **Optional extra checks**
 - [ ] **Schedule:** set the start time a few minutes ahead while the instance is stopped. It should start on time.
 - [ ] **Long-job check:** start your real job, disconnect, and wait past the stop time. The instance should keep running, and the log should say `Busy (workload)`.
@@ -149,4 +169,5 @@ sudo -v && bash verify_guest.sh
 | Level 4: instance check, test email delivered | ✅ Passed |
 | Level 6: warning at 2 idle minutes, stop requested at about 4.3, **Stopped** about 35 s later | ✅ Passed |
 | Level 6: wake through the API, `ready: yes` in 4 s, files intact | ✅ Passed |
+| Fresh redeploy by a new AI agent from this repository (complete removal, new stack, new timer, real warn and stop cycle with the reboot-proof short timings, 4 emails sent and delivered, none failed, instance left stopped) | ✅ Passed |
 | Level 5 practice run (`verify_guest.sh`) on a real instance | ⏳ Not run yet |

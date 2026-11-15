@@ -158,8 +158,9 @@ Then ask separately: attach role? fixed IP (or: keep existing EIP <IP>)?
           temporary SSH access (if no route)? install the timer?
 Cost:     about US$0 for the AWS pieces; compute only while running;
           new fixed IP about US$3.65/month if chosen (README, Costs)
-Expect:   an "ALARM" email soon after deploy if the instance is already idle.
-          This is normal until the timer is installed.
+Expect:   an "ALARM" email within about 20 minutes of deploy if the instance is already idle.
+          This is normal until the timer is installed. A first test cycle then gives
+          up to 4 emails: alarm, setup test, one warning, one "stopped".
 ```
 
 ---
@@ -182,7 +183,7 @@ Expect:   an "ALARM" email soon after deploy if the instance is already idle.
 <details>
 <summary><b>Deploy recipe for MCP servers and SDKs</b> (no <code>aws cloudformation deploy</code>)</summary>
 
-1. **Template.** Use the exact committed bytes of `src/ec2-idle-stack.yaml`, with LF line endings. The repository's `.gitattributes` keeps it LF even on Windows. It's about 31 KB, under the 51,200-byte limit for `TemplateBody`, so no S3 bucket is needed. If your tool can't read local files, embed the text in the call.
+1. **Template.** Use the exact committed bytes of `src/ec2-idle-stack.yaml`, with LF line endings. The repository's `.gitattributes` keeps it LF even on Windows. It's about 31 KB, under the 51,200-byte limit for `TemplateBody`, so no S3 bucket is needed. If your tool can't read local files, embed the text in the call **as a raw string** (in Python, `r'''…'''`), because the template contains backslashes that a normal string would change. Check the length (about 31,000 bytes, no `\r` characters) before sending.
 2. **Create.** `cloudformation:CreateStack` with:
    - `StackName=ec2-idle`
    - `TemplateBody=<template>`
@@ -190,7 +191,7 @@ Expect:   an "ALARM" email soon after deploy if the instance is already idle.
    - `OnFailure=ROLLBACK`
    - `Parameters=[{ParameterKey, ParameterValue}, …]`. Pass empty optional values as `""`.
    - For an existing stack, use `UpdateStack` with the same arguments.
-3. **Wait.** Poll `cloudformation:DescribeStacks` every 15 to 30 seconds until `CREATE_COMPLETE`, which takes about 2 to 3 minutes. On `ROLLBACK_*`, read `DescribeStackEvents` for `ResourceStatusReason`, report it, and don't retry by yourself.
+3. **Wait.** Poll `cloudformation:DescribeStacks` every 15 to 30 seconds until `CREATE_COMPLETE`, which takes about 2 to 3 minutes. Some MCP servers return before a long call finishes. If a call seems to hang, poll its task (for example `get_tasks`) or re-query the stack instead of sending it again. On `ROLLBACK_*`, read `DescribeStackEvents` for `ResourceStatusReason`, report it, and don't retry by yourself.
 4. **Outputs.** Read them from `DescribeStacks` → `Stacks[0].Outputs`.
 5. **Attach the role.** `ec2:AssociateIamInstanceProfile` with `InstanceId` and `IamInstanceProfile={"Name": "<profile from AttachRoleCommand>"}`. Check first with `DescribeIamInstanceProfileAssociations` that nothing is attached already.
 6. **Check the wake page.** `lambda:GetFunctionUrlConfig` should show `AuthType NONE`. An HTTPS `GET` of `WakePageUrl` without a browser `accept` header returns the instructions text.
