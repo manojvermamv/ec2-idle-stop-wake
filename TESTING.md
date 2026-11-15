@@ -153,7 +153,10 @@ CI can't start systemd inside a container, so it can't enable the timer or stop 
 | Template check (`cfn-lint`) | ✅ Clean |
 | `discover.sh` against simulated AWS answers (your setup, and a worst case with every blocker) | ✅ Passed |
 | `temp_ssh.sh` against a simulated AWS CLI: open, already-open guard, status, expired-rule cleanup, close, input guards | ✅ Passed |
-| `temp_ssh.sh`, `EnableSessionManager` and `WarnMinutes`/`StopMinutes` against a live AWS account | ⏳ Not run yet |
+| `temp_ssh.sh` open, status and close on a live account (rule for one IP, SSH reachable, rule removed) | ✅ Passed |
+| Stack update to the current template on a live account; `curl -d pin=...` wake and status; wrong-PIN message | ✅ Passed (this found and fixed a bug: form bodies arrive base64-encoded) |
+| Installer on the real Ubuntu 24.04 instance with `--warn 2 --stop 4`, then a real warning email, stop and wake | ✅ Passed |
+| `EnableSessionManager=yes` on a live account | ⏳ Not run yet |
 | `ec2_up.py` end to end against a fake wake page and fake SSH server: wake, wait and connect; fast path with no wake page call; wrong PIN message | ✅ Passed |
 | Services allowed on the AWS Free plan | ✅ Confirmed from AWS docs |
 | Live run on a real account (Ubuntu 24.04, m7i-flex.large, Sydney), deployed by a fresh AI agent from this repository through an AWS MCP server | ✅ Passed |
