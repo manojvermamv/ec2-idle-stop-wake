@@ -4,7 +4,7 @@
 
 Your EC2 instance (a computer you rent from AWS) turns itself off when you stop working, and it turns back on with one tap from any browser, phone or terminal. You set it up once, and nothing has to keep running on your own computer.
 
-![Setup](https://img.shields.io/badge/setup-one%20time-0972d3) ![AWS Free plan](https://img.shields.io/badge/AWS%20Free%20plan-compatible-037f0c) ![Python](https://img.shields.io/badge/python-3.6%2B-3776ab) ![Client tools](https://img.shields.io/badge/client%20tools-none%20required-5f6b7a)
+[![Tests](https://github.com/manojvermamv/ec2-idle-stop-wake/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/manojvermamv/ec2-idle-stop-wake/actions/workflows/ci.yml) ![Setup](https://img.shields.io/badge/setup-one%20time-0972d3) ![AWS Free plan](https://img.shields.io/badge/AWS%20Free%20plan-compatible-037f0c) ![Python](https://img.shields.io/badge/python-3.6%2B-3776ab) ![Client tools](https://img.shields.io/badge/client%20tools-none%20required-5f6b7a)
 
 > [!TIP]
 > **In short**
