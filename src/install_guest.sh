@@ -70,7 +70,7 @@ fi
 root_only() {   # root_only <path>: it and every folder above it belong to root, with no group or other write bit
     local path=$1 owner mode
     while :; do
-        read -r owner mode < <(stat -c '%u %a' -- "$path" 2>/dev/null) || return 1
+        read -r owner mode < <(stat -L -c '%u %a' -- "$path" 2>/dev/null) || return 1   # -L: /bin and /usr/sbin are links to folders root controls
         [[ $owner == 0 ]] || return 1
         (( (8#$mode & 8#022) == 0 )) || return 1
         [[ $path == / ]] && return 0

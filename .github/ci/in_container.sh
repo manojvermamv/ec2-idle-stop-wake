@@ -8,7 +8,10 @@ exec > >(tee "$log") 2>&1
 report_failure() {
     local status=$?
     if [ "$status" -ne 0 ]; then
-        echo "::error title=${CI_IMAGE:-image} ($(uname -m)) failed::$(tail -n 25 "$log" | sed -e 's/%/%25/g' -e ':a;N;$!ba;s/\n/%0A/g')"
+        sleep 2   # let the tee behind the log file finish writing
+        # the failing test names first, then the end of the log
+        problems=$(grep -E '^(FAIL|ERROR):|Error|Traceback' "$log" | head -n 12 || true)
+        echo "::error title=${CI_IMAGE:-image} ($(uname -m)) failed::$(printf '%s\n' "$problems" "-----" "$(tail -n 25 "$log")" | sed -e 's/%/%25/g' -e ':a;N;$!ba;s/\n/%0A/g')"
     fi
 }
 trap report_failure EXIT
