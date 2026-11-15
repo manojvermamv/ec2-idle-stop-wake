@@ -277,7 +277,8 @@ def watch_busy(cfg, cpu_path):
     after = {}
     reason = None
     limit = cfg.watch_max * 3600
-    for job in watch_scan(cfg.watch):
+    # The same order every time (builds, then agents, then training), whatever order /proc lists them in.
+    for job in sorted(watch_scan(cfg.watch), key=lambda j: (WATCH_GROUPS.index(j["group"]), j["name"], j["key"])):
         if job["group"] == "agents":
             after[job["key"]] = job["cpu"]
             last = before.get(job["key"])

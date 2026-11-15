@@ -342,7 +342,7 @@ class WatchTests(Case):
         Path(self.proc, "uptime").write_text("100000.00 5.00\n")
         self.cpu_file = Path(self.enter(tempfile.TemporaryDirectory()), "watch.json")
         self.cfg = ec2_idle.load_config({"WATCH": "builds,agents,training"})
-        self.pids = itertools.count(100)
+        self.pids = itertools.count(5_000_000)   # above the highest real process ID, which the scan skips for itself
 
     def add(self, *argv, comm=None, state="S", hours=0.1, cpu=0, pid=None):
         pid = pid or next(self.pids)
