@@ -203,10 +203,10 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 | Level | Systems |
 |---|---|
 | Tested end to end on a real instance | Ubuntu 24.04 on x86_64 (Sydney) |
-| Installer and unit tests pass in CI containers (x86_64) | Ubuntu 20.04, 22.04, 24.04 and 26.04. Debian 12 and 13. Amazon Linux 2 and 2023. Rocky, AlmaLinux and Oracle Linux 8 and 9 (AlmaLinux also 10). CentOS Stream 9. Fedora (latest). openSUSE Leap 15.6 |
+| Installer and unit tests pass in CI containers (x86_64) | Ubuntu 20.04, 22.04, 24.04 and 26.04. Debian 12 and 13. Amazon Linux 2 and 2023. Rocky, AlmaLinux and Oracle Linux 8 and 9 (AlmaLinux also 10). CentOS Stream 9. Fedora (latest). openSUSE Leap 15.6. Arch Linux (latest) |
 | Same, on arm64 (Graviton) | Ubuntu 24.04, Debian 13, Amazon Linux 2023, Rocky Linux 9 |
 | Python versions tested | 3.6 to 3.14 |
-| Not covered | Debian 11 (its package servers are retired), Arch Linux (fixed in the installer, not yet in CI), everything else. Other systemd Linux systems should work, but nobody has checked. |
+| Not covered | Debian 11 (its package servers are retired), everything else. Other systemd Linux systems should work, but nobody has checked. |
 
 The CI containers have no systemd, so they prove the installer finds Python and the code runs on each system's own Python. They can't prove the timer starts, or that the instance stops. Only the real Ubuntu test showed that. The full list and results are in [TESTING.md](TESTING.md#-automatic-checks-ci).
 
