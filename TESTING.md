@@ -44,7 +44,8 @@ python -B -m unittest discover -s src -v
 | `CheckTests` | `--check` passes and fails correctly |
 | `WakeClientTests` | The optional SSH helper: fast path, wake and wait, fall back to the wake page, `--no-wake`, timeouts, wrong PIN or lock, command line, data relay |
 | `LambdaTests` | Wake page vs instructions, text vs JSON, waiting and progress, PIN checks, the 5-tries lockout (lock, unlock, reset, expiry, fail closed) |
-| `TemplateTests` | The stack file contains the current wake page code, and its form has exactly the 8 expected settings |
+| `TemplateTests` | The stack file contains the current wake page code, and its form has exactly the 11 expected settings |
+| `DocsTests` | The docs still match the code: options, settings, outputs, links. The same as `python src/check_docs.py` |
 
 </details>
 
@@ -120,12 +121,26 @@ sudo systemctl daemon-reload
 
 ---
 
+## 🤖 Automatic checks (CI)
+
+Every push runs these on GitHub, in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Nothing for you to do.
+
+| Job | What it proves |
+|---|---|
+| **Lint, docs and systemd units** | The stack file is valid (`cfn-lint`), the shell scripts parse and pass `shellcheck`, the docs match the code (`check_docs.py`), and systemd accepts the unit files. |
+| **Python 3.6 to 3.14** | The unit tests pass on the oldest and newest Python the timer supports, in the official Python images. |
+| **Distro images** | On each image (Ubuntu, Debian, Amazon Linux, Rocky, Alma, Oracle Linux, CentOS Stream, Fedora, openSUSE and Arch, plus four on arm64): the installer finds or installs the prerequisites the way it would on a real instance, then the unit tests run on that distro's own Python. |
+
+CI can't start systemd inside a container, so it can't enable the timer or stop an instance. That part is tested only on a real instance (levels 4 and 5).
+
 ## 🔁 After changing code
 
 | You changed | Then run |
 |---|---|
 | `src/wake_ec2.py` | `python src/sync_template.py`, then levels 1 and 2, then update the stack |
-| `src/ec2_idle.py` or the timer files | Level 1, then the installer again (level 4) |
+| `src/ec2_idle.py` or the timer files | Level 1, then the installer again (level 4). Push, and check that CI is green on every distro. |
+| `src/install_guest.sh` | Level 1, then CI's distro jobs, then the installer on a real instance |
+| Any `.md` file | `python src/check_docs.py` |
 | `src/ec2-idle-stack.yaml` | Level 2, then update the stack |
 | `src/ec2_up.py` | Level 1, then connect with `ssh ec2-workspace` while the instance is stopped, and again while it's running |
 
@@ -133,10 +148,12 @@ sudo systemctl daemon-reload
 
 | Check | Result |
 |---|---|
-| 51 unit tests on Windows, Python 3.13, with and without botocore | ✅ Passed |
+| 52 unit tests on Windows, Python 3.13, with and without botocore | ✅ Passed |
 | Request signing matches AWS's published example and botocore | ✅ Passed |
 | Template check (`cfn-lint`) | ✅ Clean |
-| `discover.sh` against simulated AWS answers (your setup and a worst case) | ✅ Passed |
+| `discover.sh` against simulated AWS answers (your setup, and a worst case with every blocker) | ✅ Passed |
+| `temp_ssh.sh` against a simulated AWS CLI: open, already-open guard, status, expired-rule cleanup, close, input guards | ✅ Passed |
+| `temp_ssh.sh`, `EnableSessionManager` and `WarnMinutes`/`StopMinutes` against a live AWS account | ⏳ Not run yet |
 | `ec2_up.py` end to end against a fake wake page and fake SSH server: wake, wait and connect; fast path with no wake page call; wrong PIN message | ✅ Passed |
 | Services allowed on the AWS Free plan | ✅ Confirmed from AWS docs |
 | Live run on a real account (Ubuntu 24.04, m7i-flex.large, Sydney), deployed by a fresh AI agent from this repository through an AWS MCP server | ✅ Passed |

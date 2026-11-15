@@ -69,7 +69,7 @@ def problems():
 
     # 3. outputs
     outputs = set(re.findall(r"^  ([A-Za-z]+):\s*$", template.split("\nOutputs:\n", 1)[1], re.M))
-    names = "WakePageUrl|OneTapBookmark|TerminalWakeCommand|AlertTopicArn|ConnectInBrowser|GuestInstallCommand|AttachRoleCommand"
+    names = "WakePageUrl|OneTapBookmark|TerminalWakeCommand|AlertTopicArn|ConnectInBrowser|TemporarySshCommand|GuestInstallCommand|AttachRoleCommand"
     mentioned = set()
     for text in docs.values():
         for bold, code_span in re.findall(r"\*\*(%s)\*\*|`(%s)`" % (names, names), text):

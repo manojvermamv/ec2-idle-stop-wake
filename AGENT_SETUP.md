@@ -191,7 +191,7 @@ Expect:   a first test cycle sends 3 emails: setup test, one warning, one "stopp
 |---|---|---|---|
 | 4.1 | – | Ask the user for a PIN of 4 to 64 letters and numbers (SETUP Step 1). They may type it into the stack form themselves instead. | A PIN they remember |
 | 4.2 | G3 | Deploy the stack with the planned settings: with the CLI, use SETUP Step 2's command option; with an MCP server or SDK, see the recipe below. | `CREATE_COMPLETE` |
-| 4.3 | – | Read the outputs: `WakePageUrl`, `OneTapBookmark`, `TerminalWakeCommand`, `AlertTopicArn`, `GuestInstallCommand`, `AttachRoleCommand`. | An outputs table |
+| 4.3 | – | Read the outputs: `WakePageUrl`, `OneTapBookmark`, `TerminalWakeCommand`, `AlertTopicArn`, `GuestInstallCommand`, `ConnectInBrowser`, `TemporarySshCommand`, `AttachRoleCommand`. | An outputs table |
 | 4.4 | – | Ask the user to confirm the subscription email **now, before 4.7**, and wait for their "done". If they turned on the backup alarm, mention that an "ALARM" email may also arrive (see the plan). | The user confirms |
 | 4.5 | G4 | Attach the role, if `AttachRoleCommand` exists: `ec2:AssociateIamInstanceProfile`. Then **wait about 60 seconds** for it to take effect. | `"State": "associating"` |
 | 4.6 | G4 | Set up a new fixed IP, if chosen (SETUP Step 3b). Skip if one is already attached. | The fixed IP |

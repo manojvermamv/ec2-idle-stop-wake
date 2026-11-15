@@ -17,12 +17,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Template and scripts
+      - name: Stack template (cfn-lint)
         run: |
           pip install cfn-lint
           cfn-lint src/ec2-idle-stack.yaml
-          for f in src/*.sh .github/ci/*.sh; do bash -n "$f"; done
-          shellcheck -S warning src/*.sh .github/ci/*.sh
+      - name: Shell scripts parse
+        run: for f in src/*.sh .github/ci/*.sh; do bash -n "$f"; done
+      - name: Shell scripts (shellcheck)
+        run: |
+          if ! out=$(shellcheck -S warning -f gcc src/*.sh .github/ci/*.sh 2>&1); then
+            echo "$out"
+            echo "::error title=shellcheck::$(echo "$out" | head -n 30 | sed -e 's/%/%25/g' -e ':a;N;$!ba;s/
+/%0A/g')"
+            exit 1
+          fi
       - name: Docs still match the code
         run: python src/check_docs.py
       - name: systemd accepts the unit files
@@ -83,4 +91,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Installer prerequisites, then the tests on the distro's own Python
-        run: docker run --rm -v "$PWD":/repo ${{ matrix.image }} bash /repo/.github/ci/in_container.sh
+        run: docker run --rm -e CI_IMAGE="${{ matrix.image }}" -v "$PWD":/repo ${{ matrix.image }} bash /repo/.github/ci/in_container.sh

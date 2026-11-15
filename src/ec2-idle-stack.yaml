@@ -830,6 +830,12 @@ Outputs:
   ConnectInBrowser:
     Description: Opens the EC2 connect page for the instance. With EnableSessionManager there is a Session Manager tab that needs no SSH port.
     Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/ec2/home?region=${AWS::Region}#ConnectToInstance:instanceId=${InstanceId}"
+  TemporarySshCommand:
+    Description: >-
+      Only if you have no other way onto the instance. Run it in CloudShell, from the src folder after git clone.
+      It opens port 22 for your current IP only, for 30 minutes. Run the same command with close instead of open
+      when you are done.
+    Value: !Sub "bash temp_ssh.sh open ${InstanceId} --region ${AWS::Region}"
   AttachRoleCommand:
     Condition: CreateRole
     Description: Run once in CloudShell to give the instance its new role.

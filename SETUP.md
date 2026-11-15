@@ -163,6 +163,7 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 | **AlertTopicArn** | Only if you entered an email. It's already inside **GuestInstallCommand**. |
 | **GuestInstallCommand** | You'll paste this in Step 4. It already carries your idle times. |
 | **ConnectInBrowser** | Opens the EC2 connect page for your instance. With **EnableSessionManager** there's a Session Manager tab that needs no SSH port. |
+| **TemporarySshCommand** | Only if you have no other way onto the instance. It opens port 22 for your IP only, for 30 minutes ([details in Step 4](#step-4-install-the-idle-timer-on-the-instance)). |
 | **AttachRoleCommand** | Shown only if a new role was created. You'll use it in Step 3. |
 
 > [!IMPORTANT]

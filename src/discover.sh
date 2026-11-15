@@ -36,6 +36,7 @@ if [[ -z $instance ]]; then
     exit 0
 fi
 
+# shellcheck disable=SC2034  # 'public' is read only to keep the other columns in place
 read -r root lifecycle ami profile public state endpoint platform itype arch < <(
     ro ec2 describe-instances --instance-ids "$instance" --output text --query \
     'Reservations[0].Instances[0].[RootDeviceType,InstanceLifecycle,ImageId,IamInstanceProfile.Arn,PublicIpAddress,State.Name,MetadataOptions.HttpEndpoint,Platform,InstanceType,Architecture]'
