@@ -19,5 +19,14 @@ echo "$output"
 echo "::notice title=${CI_IMAGE:-image} ($(uname -m))::$(echo "$output" | tail -n 1)"
 python3 -c 'import sys; print("python3 is", sys.version.split()[0]); assert sys.version_info >= (3, 6)'
 python3 -I -S -c 'import sys; sys.path.insert(0, "."); import ec2_idle; print("ec2_idle imports the way the service runs it (-I -S)")'
+# The installer only lets root run files that nobody else can change: the distro's own Python passes,
+# and a world-writable file is refused.
+eval "$(sed -n '/^root_only() {/,/^}/p;/^trusted() {/,/^}/p' /repo/src/install_guest.sh)"
+trusted "$(command -v python3)" || { echo "trusted() refused the distro's own python3"; exit 1; }
+scratch=$(mktemp -d)
+touch "$scratch/tool"
+chmod 777 "$scratch/tool"
+if trusted "$scratch/tool"; then echo "trusted() accepted a world-writable file"; exit 1; fi
+echo "trusted() accepts the distro Python and refuses a world-writable file"
 cd /repo
 PYTHONIOENCODING=utf-8 python3 -B -m unittest discover -s src

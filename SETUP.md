@@ -81,10 +81,10 @@ It checks the 5 things that can block setup: an EBS root disk, not Windows or Sp
 | Login name | `ubuntu` on Ubuntu, `ec2-user` on Amazon Linux, `admin` on Debian | `<SSH_USER>` |
 | Disk encryption key | EC2 → Volumes → KMS key. Fill this in only if it isn't `aws/ebs`. | `<KMS_KEY_ARN_OR_EMPTY>` |
 | Email for warnings | Optional | `<EMAIL_OR_EMPTY>` |
-| IP address | **Already has an Elastic IP?** Keep it and skip Step 3b. Otherwise choose **fixed** (about US$3.65/month) or **changing** (free, and the wake page shows it). | keep / fixed / changing |
+| IP address | **Already has an Elastic IP?** Keep it and skip Step 3b. Otherwise choose **fixed** (about US$3.65/month) or **changing** (no extra fee while stopped, and the wake page shows it). | keep / fixed / changing |
 | Daily start time | Optional, for example `cron(0 9 ? * MON-FRI *)\|Asia/Kolkata` for 9:00 on weekdays in India. The `\|` and time zone are optional (UTC without them). | `<SCHEDULE_OR_EMPTY>` |
 | Idle times | Optional. Minutes without activity before the warning email, and before the stop. The defaults are 30 and 45. | `<WARN>` `<STOP>` |
-| Long jobs | Work that must keep running after you disconnect, such as AI agents, builds or training | `<JOBS_OR_NONE>` |
+| Long jobs | Work that must keep running after you disconnect, such as AI agents, builds or training. The installer's `--watch` option covers the common ones. | `<JOBS_OR_NONE>` |
 | Browser shell | Optional. Choose **yes** if you can't SSH in from your computer. It gives you a shell in the browser (Session Manager) with no port or key to open. | yes / no |
 
 > [!NOTE]
@@ -94,11 +94,12 @@ It checks the 5 things that can block setup: an EBS root disk, not Windows or Sp
 
 ## Step 1: Choose your PIN
 
-Your PIN is the password for your wake page. Pick **4 to 64 letters and numbers**, for example `4821`. You'll type it into the stack form in Step 2, so there's nothing to generate.
+Your PIN is the password for your wake page. Pick **4 to 64 letters and numbers**, for example `1234`. You'll type it into the stack form in Step 2, so there's nothing to generate.
 
-- **A short PIN is fine.** After 5 wrong tries the page locks for 15 minutes, so it can't be guessed, and the PIN can only *start* the instance.
-- **Longer is stronger.** A mix such as `blue7tiger` is easy to remember and much harder to guess.
-- **Save it in your password manager,** and keep it out of Git.
+- **A short PIN is fine for most people.** After 5 wrong tries the page locks for 15 minutes, which allows about 480 guesses a day. A 4-digit PIN would take about 10 days of non-stop guessing on average, and the PIN can only *start* the instance.
+- **Longer is stronger.** A mix such as `blue7tiger` is easy to remember and far harder to guess. Anyone with the link can also keep the page locked for 15 minutes by guessing wrong. You can still start the instance from the EC2 console.
+- **Save it in your password manager,** and keep it out of Git. Never paste it into a chat or an AI assistant.
+- **Forgot it later?** Only people with access to your AWS account can read it back, but you can set a new one in a minute. See [locked out or forgot the PIN](RUNBOOK.md#-locked-out-or-forgot-the-pin).
 
 ---
 
@@ -165,6 +166,8 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 | **ConnectInBrowser** | Opens the EC2 connect page for your instance. With **EnableSessionManager** there's a Session Manager tab that needs no SSH port. |
 | **TemporarySshCommand** | Only if you have no other way onto the instance. It opens port 22 for your IP only, for 30 minutes ([details in Step 4](#step-4-install-the-idle-timer-on-the-instance)). |
 | **AttachRoleCommand** | Shown only if a new role was created. You'll use it in Step 3. |
+| **LockTableName** | The small table that counts wrong PINs. You only need it to clear a lock early. |
+| **ClearLockCommand** | **For you, the owner, if you're ever locked out.** One command that ends the 15-minute lock right away. It doesn't show or change your PIN. See [locked out or forgot the PIN](RUNBOOK.md#-locked-out-or-forgot-the-pin). |
 
 > [!IMPORTANT]
 > If you entered an email, AWS sends a **Subscription Confirmation** email. Click **Confirm subscription** now, **before Step 4**, or the installer's test email and later warnings won't arrive.
@@ -203,7 +206,7 @@ aws ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].Publi
 > [!CAUTION]
 > **Run these commands ON THE EC2 INSTANCE, not on your own computer.** In Windows PowerShell, `bash install_guest.sh` either fails with *"Windows Subsystem for Linux has no installed distributions"* or stops with *"run this ON THE EC2 INSTANCE"*. Either way, nothing gets installed on the instance.
 
-**The installer looks after its own prerequisites.** It needs Python 3.6 or newer and systemd. If Python is missing it installs it for you (with apt, dnf, yum, zypper or pacman) and carries on. Add `--no-deps` to stop it installing anything.
+**The installer looks after its own prerequisites.** It needs Python 3.6 or newer and systemd. If Python is missing it installs it for you (with apt, dnf, yum, zypper, pacman or apk) and carries on. Add `--no-deps` to stop it installing anything.
 
 **First, open a terminal on the instance.** Use whichever of these works for you. The first one is the best choice when you have no way in yet:
 
@@ -218,9 +221,11 @@ aws ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].Publi
 <details>
 <summary>Temporary SSH access, only when you need it</summary>
 
-This opens port 22 for **your current IP address only**, for a limited time, then closes it. The idle timer doesn't need it afterwards.
+This opens port 22 for **your current IP address only**, with an end time written into the rule. AWS can't close a rule by itself, so you close it when you're done (`close`, below). The idle timer doesn't need it afterwards.
 
-**▶ Run in:** CloudShell, or any terminal with AWS CLI v2 signed in · ✏️ **Changes AWS**
+**▶ Run in:** your own computer, with AWS CLI v2 signed in · ✏️ **Changes AWS**
+
+Run it on the computer you will connect from. It uses the public address it is run from, and in CloudShell that is CloudShell's address, not yours. If you do use CloudShell, add `--ip <YOUR_ADDRESS>`.
 
 ```bash
 bash temp_ssh.sh open <INSTANCE_ID>                 # your current IP only, for 30 minutes
@@ -230,7 +235,7 @@ bash temp_ssh.sh close <INSTANCE_ID>                # remove the rule
 ```
 
 - **Time:** `--minutes 60` changes the 30-minute default. It's a promise written into the rule, not a timer, because AWS can't remove a rule by itself. Run `close` when you're done. Any later `open`, `status` or `close` also removes rules that have run out.
-- **Other options:** `--ip <ADDRESS>` if the address it finds isn't yours, `--port`, `--group sg-…` to use another security group, and `status` to see what's open.
+- **Other options:** `--ip <ADDRESS>` if the address it finds isn't yours, `--port`, `--group sg-…` to use another security group, and `status` to see what's open. `close` removes every temporary rule of this kind in the group, or only the one matching `--ip` and `--port` if you give them. If AWS refuses to remove a rule, it says so and stops.
 - **It applies to every instance that uses that security group.**
 - **By hand instead:** in the EC2 console, open the instance's security group, add an inbound rule **SSH, My IP**, and delete it when you're done.
 
@@ -268,6 +273,7 @@ All checks passed.
 
 Installed. Warning at 30 idle minutes, stop at 45.
 Emails: one warning (at most one per hour), then one 'stopped' email with your wake page link.
+Monthly note: one short 'still working' email a month while the instance runs (turn off with --monthly-email off).
 Logs: sudo journalctl -u ec2-idle.service -b -n 30 --no-pager
 ```
 
@@ -282,7 +288,32 @@ The test email line appears only on the first install or when the email topic ch
 <details>
 <summary>Keep long jobs running after you disconnect</summary>
 
-By default, the instance stops 45 minutes after your last connection closes. If an AI agent, build or training job must keep running, give the timer a small "is my job running?" check (a **probe**). It answers 0 for busy and 1 for idle.
+By default, the instance stops 45 minutes after your last connection closes. If a build, an AI agent or a training run must keep going after you disconnect, you have two ways to tell the timer. You can use both. If either one says "busy", the instance stays on.
+
+**Option 1: the ready-made check (easiest).** Run the installer again with `--watch`:
+
+```bash
+bash install_guest.sh --watch builds,agents,training
+```
+
+Leave the list out (`--watch` on its own) to watch all three. It is **off unless you ask for it**, and `--watch off` turns it off again.
+
+| Group | What keeps the instance on |
+|---|---|
+| `builds` | `make`, `cmake`, `ninja`, `cargo build`, `npm`, `yarn` or `pnpm` (install, ci, add, or run build), `pip install`, `docker build` and `docker buildx build` |
+| `agents` | `claude`, `codex` and `aider`, but **only while they are busy**. A newly started agent counts once, and after that only while it keeps using processor time between two checks, so an agent left open and idle does not keep the instance on. |
+| `training` | A `python` program whose script or module name has the word `train`, `fit` or `finetune` in it, for example `python train.py` or `python -m trainer.main` |
+
+Good to know:
+- It only recognises jobs that finish, such as `npm run build`. Things that run forever (`npm start`, `docker run`, a web server) are not counted.
+- Builds and training runs older than **12 hours** are ignored, so a forgotten job can't keep the instance on for ever. Change the limit with `--watch-hours 24` (1 to 720). Agents are not limited by age, because they only count while they work.
+- Jobs started with `nohup`, `sudo`, `timeout`, `uv run` or inside `tmux` still count, and so do options such as `npm --prefix app run build`.
+- It is a **best effort** helper. An agent that waits quietly for a slow reply can look idle, and a program with an unusual name is not recognised. For anything else, use Option 2.
+- To see what it found right now, run the `--check` command from the [Runbook](RUNBOOK.md#-fix-a-problem). It lists the watched jobs that are running.
+
+**You should see:** `OK    Long-job check works (watching: builds, agents, training; ...)`.
+
+**Option 2: your own check (a probe).** A probe is a small "is my job running?" script. It answers 0 for busy and 1 for idle.
 
 1. On the instance, save this as `/usr/local/sbin/ec2-work-probe`, with your own process names:
 
@@ -311,17 +342,22 @@ By default, the instance stops 45 minutes after your last connection closes. If 
 
 | Option | Effect |
 |---|---|
-| `--warn 20 --stop 30` | Change the timings. The defaults are 30 and 45 minutes. The stack's **GuestInstallCommand** already includes yours. |
+| `--warn 20 --stop 30` | Change the timings. The defaults are 30 and 45 minutes, and a reinstall keeps the last ones. The stack's **GuestInstallCommand** already includes yours. |
 | `--python /path/to/python3` | Use this Python (3.6 or newer) instead of the one it finds. |
 | `--no-deps` | Don't install anything, even if Python is missing. |
 | `--deps-only` | Check and install the prerequisites, show what was found, and stop. |
 | `--name my-dev-box` | A friendly name for the emails. |
-| `--probe /path` | The long-job check from above. `--probe none` removes it. |
+| `--watch builds,agents,training` | The ready-made long-job check from above. `--watch` alone watches all three, and `--watch off` turns it off. |
+| `--watch-hours 12` | Ignore builds and training runs older than this many hours (1 to 720). |
+| `--probe /path` | Your own long-job check from above. `--probe none` removes it. |
 | `--test-email` | Send the setup test email again. |
+| `--monthly-email off` | Turn off the short "idle stop is still working" email you get once a month (only sent when you set up emails). `--monthly-email on` turns it back on. It is on by default. |
 | `--uninstall` | Remove the timer but keep its settings. |
 | `--uninstall --purge` | Remove the timer and also delete its settings and saved state. |
 
-Anything you leave out (email topic, wake link, name, long-job check) is kept from the last install.
+Anything you leave out (email topic, wake link, name, long-job checks, monthly note, warning and stop times) is kept from the last install.
+
+Because the timer runs as root, the installer only accepts a `--probe` or `--python` that root owns and that nobody else can change, and a probe path may use only letters, numbers and `. _ / + @ -`. The installer tries your new settings first and changes nothing unless that check passes. If the install itself stops part-way, your previous files are put back as they were. To switch emails off after removing the address from the stack, run the installer with `--topic none`.
 
 </details>
 
@@ -385,6 +421,49 @@ Host ec2-workspace
 ## Step 6: Test it once
 
 Follow the short live test in [TESTING.md](TESTING.md#-level-5-live-acceptance-cycle). It takes about 5 minutes: the instance stops, you wake it, and you check your files.
+
+---
+
+## 💸 Optional: set a spend alert
+
+The idle timer keeps the instance's running time low, but it can't see your whole AWS bill. A **budget** is a separate AWS feature that emails you when your spending goes over a number you pick. It's worth two minutes, and it isn't part of the stack on purpose:
+- A budget belongs to your **whole account**, not to this one stack. If it lived in the stack, it would disappear when you delete the stack, and a second stack would make a duplicate.
+- Some new or Free Plan accounts limit Budgets, and a stack that tried to create one could fail or roll back an update. Written down here, it can't break anything.
+
+**Use the console first. ▶ Run in:** AWS console · ✏️ **Changes AWS**
+
+1. Open **Billing and Cost Management → Budgets → Create budget**.
+2. Choose the simple template **Monthly cost budget**.
+3. Enter a name (for example `monthly-spend-alert`), the amount you're comfortable with each month, and your email address.
+4. Choose **Create budget**. AWS emails you when your spending goes over the amount. The template may also offer an earlier warning. Keep it if it does.
+
+**Prefer a command? ▶ Run in:** CloudShell · ✏️ **Changes AWS**
+
+Replace `YOUR_ACCOUNT_ID` (your 12-digit account number, shown in the console's top-right menu), the amount and `<EMAIL>`. Budgets is a global service, so the command doesn't depend on your Region.
+
+```bash
+cat > budget.json <<'EOF'
+{"BudgetName": "monthly-spend-alert", "BudgetType": "COST", "TimeUnit": "MONTHLY",
+ "BudgetLimit": {"Amount": "20", "Unit": "USD"}}
+EOF
+cat > notifications.json <<'EOF'
+[{"Notification": {"NotificationType": "ACTUAL", "ComparisonOperator": "GREATER_THAN",
+                   "Threshold": 80, "ThresholdType": "PERCENTAGE"},
+  "Subscribers": [{"SubscriptionType": "EMAIL", "Address": "<EMAIL>"}]}]
+EOF
+aws budgets create-budget --account-id YOUR_ACCOUNT_ID --budget file://budget.json \
+  --notifications-with-subscribers file://notifications.json
+```
+
+**You should see:** no output, and the budget under **Budgets** in the console. This one emails you when your actual spending passes 80% of US$20 in a month.
+
+**Budgets not available on your account?** Use the spend limit in **AWS Settings → Billing** instead. Only a project owner can change it. When you reach a spend limit AWS can pause the project, so if something that used to work suddenly says `AccessDenied`, look there first (see the [Runbook](RUNBOOK.md#-waking-problems)).
+
+**Good to know**
+- Your **Free Plan credit balance and end date** are in **AWS Settings → Billing**. Check them before you estimate how long your credit will last.
+- A budget is an alert, not a brake. It never stops or changes anything.
+- Budgets have their own pricing and free allowance: [AWS Budgets](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html).
+- To remove it later, delete it under **Budgets** in the console.
 
 ---
 

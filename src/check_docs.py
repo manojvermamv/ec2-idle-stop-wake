@@ -21,7 +21,8 @@ FOREIGN_FLAGS = {
     "--parameter-overrides", "--capabilities", "--stack-name", "--template-file", "--query", "--output",
     "--instance-ids", "--instance-id", "--allocation-id", "--allocation-ids", "--public-ip",
     "--association-id", "--filters", "--no-cli-pager", "--iam-instance-profile", "--since",
-    "--no-pager",
+    "--no-pager", "--account-id", "--budget", "--notifications-with-subscribers",   # aws budgets create-budget
+    "--table-name", "--key",   # aws dynamodb delete-item
 }
 REMOVED_FLAGS = ("--proxy", "--port %p", "--key-file", "--dry-run", "--include-plan")
 REMOVED_WORDS = (
@@ -54,6 +55,17 @@ def problems():
         for flag in sorted(set(re.findall(r"(?<![\w-])--[a-z][a-z-]+", text))):
             if flag not in ours and flag not in FOREIGN_FLAGS:
                 found.append("%s: the option %s is not in any of our scripts" % (name, flag))
+        # a line that names one of our scripts may only use options that script has
+        for line in text.splitlines():
+            named = [script for script in SCRIPTS if script in line]
+            if not named:
+                continue
+            allowed = set()
+            for script in named:
+                allowed |= set(re.findall(r"--[a-z][a-z-]+", code[script]))
+            for flag in sorted(set(re.findall(r"(?<![\w-])--[a-z][a-z-]+", line))):
+                if flag not in allowed and flag not in FOREIGN_FLAGS:
+                    found.append("%s: %s is not an option of %s" % (name, flag, " or ".join(named)))
         for gone in REMOVED_FLAGS:
             if gone in text:
                 found.append("%s: still mentions the removed option %r" % (name, gone))
@@ -69,7 +81,7 @@ def problems():
 
     # 3. outputs
     outputs = set(re.findall(r"^  ([A-Za-z]+):\s*$", template.split("\nOutputs:\n", 1)[1], re.M))
-    names = "WakePageUrl|OneTapBookmark|TerminalWakeCommand|AlertTopicArn|ConnectInBrowser|TemporarySshCommand|GuestInstallCommand|AttachRoleCommand"
+    names = "WakePageUrl|OneTapBookmark|TerminalWakeCommand|AlertTopicArn|ConnectInBrowser|TemporarySshCommand|GuestInstallCommand|AttachRoleCommand|LockTableName|ClearLockCommand"
     mentioned = set()
     for text in docs.values():
         for bold, code_span in re.findall(r"\*\*(%s)\*\*|`(%s)`" % (names, names), text):

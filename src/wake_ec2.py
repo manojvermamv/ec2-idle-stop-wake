@@ -292,35 +292,47 @@ def check_lock():
     return max(0, until - int(time.time())), fails
 
 
-def record_failure():
-    """Count one wrong PIN. Return (seconds now locked for, tries left before a lock)."""
+def count_attempt():
+    """Count one PIN attempt BEFORE it is checked, atomically. Return how many have been used in this window.
+
+    Counting first means a burst of parallel guesses cannot all slip past the lock: at most the allowed
+    number of them ever reach the comparison. Raises if the store fails (the caller then refuses)."""
     table = os.environ.get("LOCK_TABLE")
     if not table:
-        return 0, None
-    tries, seconds = lock_settings()
+        return 0
+    _, seconds = lock_settings()
     now = int(time.time())
-    expires = {"N": str(now + 86400)}
+    try:   # an expired window is restarted by ONE request: the condition lets only the first of a burst do it
+        ddb.update_item(
+            TableName=table, Key=LOCK_KEY,
+            UpdateExpression="SET #f = :one, #s = :now, #e = :exp",
+            ConditionExpression="attribute_exists(#s) AND #s < :cutoff",
+            ExpressionAttributeNames={"#f": "fails", "#s": "since", "#e": "expires"},
+            ExpressionAttributeValues={":one": {"N": "1"}, ":now": {"N": str(now)},
+                                       ":exp": {"N": str(now + 86400)}, ":cutoff": {"N": str(now - seconds)}})
+        return 1
+    except ClientError as error:
+        if error.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+            raise
     attrs = ddb.update_item(
         TableName=table, Key=LOCK_KEY, ReturnValues="ALL_NEW",
         UpdateExpression="ADD #f :one SET #s = if_not_exists(#s, :now), #e = :exp",
         ExpressionAttributeNames={"#f": "fails", "#s": "since", "#e": "expires"},
-        ExpressionAttributeValues={":one": {"N": "1"}, ":now": {"N": str(now)}, ":exp": expires},
+        ExpressionAttributeValues={":one": {"N": "1"}, ":now": {"N": str(now)}, ":exp": {"N": str(now + 86400)}},
     )["Attributes"]
-    fails = int(attrs["fails"]["N"])
-    if now - int(attrs["since"]["N"]) > seconds:  # old wrong tries expired: count afresh
-        ddb.update_item(
-            TableName=table, Key=LOCK_KEY, UpdateExpression="SET #f = :one, #s = :now",
-            ExpressionAttributeNames={"#f": "fails", "#s": "since"},
-            ExpressionAttributeValues={":one": {"N": "1"}, ":now": {"N": str(now)}})
-        fails = 1
-    if fails >= tries:
-        ddb.update_item(
-            TableName=table, Key=LOCK_KEY, UpdateExpression="SET #u = :until, #f = :zero, #e = :exp REMOVE #s",
-            ExpressionAttributeNames={"#u": "until", "#f": "fails", "#e": "expires", "#s": "since"},
-            ExpressionAttributeValues={":until": {"N": str(now + seconds)}, ":zero": {"N": "0"},
-                                       ":exp": {"N": str(now + seconds + 86400)}})
-        return seconds, 0
-    return 0, tries - fails
+    return int(attrs["fails"]["N"])
+
+
+def set_lock():
+    """Lock the page for the lock time. Return the seconds."""
+    _, seconds = lock_settings()
+    now = int(time.time())
+    ddb.update_item(
+        TableName=os.environ["LOCK_TABLE"], Key=LOCK_KEY,
+        UpdateExpression="SET #u = :until, #e = :exp",   # the count stays, so late parallel guesses are still refused
+        ExpressionAttributeNames={"#u": "until", "#e": "expires"},
+        ExpressionAttributeValues={":until": {"N": str(now + seconds)}, ":exp": {"N": str(now + seconds + 86400)}})
+    return seconds
 
 
 def clear_failures():
@@ -416,27 +428,34 @@ def lambda_handler(event, context):
         return reply(400, {"error": "Send a JSON or form body"})
     text = wants_text(fields, headers)
     try:
-        locked, previous_fails = check_lock()
+        locked, _ = check_lock()
     except Exception as error:  # fail closed: without the counter, nobody may guess
         print(f"Lock check failed: {error}")
         return reply(503, {"error": "Temporarily unavailable. Start the instance from the EC2 console."}, text)
     if locked:
         print("Rejected request: page is locked after wrong PINs")
         return locked_reply(locked, text)
+    tries = lock_settings()[0]
+    try:
+        used = count_attempt()   # counted first, so parallel guesses cannot all get through
+        if used > tries:
+            print("Rejected request: too many tries in this window")
+            return locked_reply(set_lock(), text)
+    except Exception as error:  # fail closed: if tries cannot be counted, nobody may guess
+        print(f"Could not count the PIN try: {error}")
+        return reply(503, {"error": "Temporarily unavailable. Start the instance from the EC2 console."}, text)
     if not pin_matches(fields["pin"]):
         print("Rejected request: wrong PIN")
-        try:
-            locked, left = record_failure()
-        except Exception as error:
-            print(f"Could not count the wrong PIN: {error}")
-            locked, left = 0, None
-        if locked:
-            return locked_reply(locked, text)
+        if used and used >= tries:
+            try:
+                return locked_reply(set_lock(), text)
+            except Exception as error:
+                print(f"Could not lock the page: {error}")
         message = "Wrong PIN"
-        if left:
-            message += f". {plural(left, 'try')} left before a {lock_settings()[1] // 60}-minute lock."
+        if used:
+            message += f". {plural(tries - used, 'try')} left before a {lock_settings()[1] // 60}-minute lock."
         return reply(403, {"error": message}, text)
-    if previous_fails:
+    if used:
         try:
             clear_failures()
         except Exception as error:

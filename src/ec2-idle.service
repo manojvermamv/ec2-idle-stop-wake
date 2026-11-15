@@ -11,6 +11,10 @@ EnvironmentFile=/etc/ec2-idle.conf
 # (Amazon Linux 2, RHEL 7) as well as on current releases.
 Environment=RUNTIME_DIRECTORY=/run/ec2-idle
 ExecStartPre=/bin/mkdir -p -m 0700 /run/ec2-idle
+# The monthly "still working" note remembers its month here, on disk, because /run is cleared at every
+# boot and the instance is stopped and started all the time.
+Environment=STATE_DIRECTORY=/var/lib/ec2-idle
+ExecStartPre=/bin/mkdir -p -m 0700 /var/lib/ec2-idle
 # -I -S: isolated mode without site-packages, so Python starts faster and loads less.
 # install_guest.sh swaps in the Python it found if python3 isn't /usr/bin/python3.
 ExecStart=/usr/bin/python3 -I -S /usr/local/sbin/ec2_idle.py

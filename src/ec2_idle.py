@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Stop this EC2 instance after it stays idle, with one warning email first.
 
-ec2-idle.timer runs this once a minute. It needs Python 3.8 or newer, systemd and
+ec2-idle.timer runs this once a minute. It needs Python 3.6 or newer, systemd and
 an instance role. AWS calls are signed with the standard library, so the AWS CLI
 is not required. Run with --check once after installing to verify the host.
 
@@ -23,6 +23,27 @@ MAX_GAP_SECONDS = 300          # tolerate delayed runs on a busy host
 STOP_RETRY_SECONDS = 600
 PROC_ROOT = "/proc"
 SSM_WORKER = b"ssm-session-wor"  # /proc/<pid>/comm is cut to 15 characters
+
+# Ready-made long-job check (the WATCH setting).
+WATCH_GROUPS = ("builds", "agents", "training")
+WATCH_DEFAULT_HOURS = 12
+WATCH_MAX_LIMIT_HOURS = 720
+AGENT_MIN_CPU_SECONDS = 0.2    # CPU an agent must use between two checks to count as working
+try:
+    CLK_TCK = os.sysconf("SC_CLK_TCK")
+except (AttributeError, ValueError, OSError):
+    CLK_TCK = 100
+INTERPRETERS = frozenset(["node", "nodejs", "sh", "bash", "dash", "env"])
+BUILD_TOOLS = frozenset(["make", "gmake", "cmake", "ninja"])
+PACKAGE_MANAGERS = frozenset(["npm", "yarn", "pnpm"])
+AGENT_NAMES = frozenset(["claude", "codex", "aider"])
+WATCH_SCRIPTS = AGENT_NAMES | frozenset(["pip", "pip3"])   # programs that may be started as "python <name>"
+TRAIN_WORDS = frozenset(["train", "trainer", "training", "fit", "finetune", "finetuning"])
+OWN_FILES = ("ec2_idle.py", "install_guest.sh")
+# Programs that only start another program ("sudo make", "timeout 3h make", "uv run train.py").
+WRAPPERS = frozenset(["sudo", "nohup", "nice", "ionice", "time", "timeout", "setsid", "stdbuf", "uv", "npx"])
+# Options of npm, yarn, pnpm and the wrappers that are followed by a value, so the value is not mistaken for a command.
+VALUE_OPTIONS = frozenset(["--prefix", "-C", "--cwd", "--dir", "--workspace", "-w", "--filter", "-F", "-u", "-g", "-n"])
 
 
 class AwsError(RuntimeError):
@@ -114,12 +135,174 @@ def ssm_session():
     return False
 
 
-def busy_reason(probe, check_sessions=True):
+def _is_python(name):
+    return name == "python" or (name.startswith("python") and name[6:].replace(".", "").isdigit())
+
+
+def _is_duration(word):
+    """3, 90, 1.5, 3h, 30m: the length given to timeout and nice."""
+    return word[:1].isdigit() and all(c in "0123456789.smhd" for c in word)
+
+
+def _positional(words):
+    """The words that are not options, and not the value of an option that takes one."""
+    found, skip = [], False
+    for word in words:
+        if skip:
+            skip = False
+        elif word in VALUE_OPTIONS:
+            skip = True
+        elif not word.startswith("-"):
+            found.append(word)
+    return found
+
+
+def command_words(argv):
+    """Turn a command line (a list of words) into [command, args...], skipping node, bash, sudo, timeout and the like."""
+    words = list(argv)
+    while words:
+        base = os.path.basename(words[0])
+        if base not in INTERPRETERS and base not in WRAPPERS:
+            break
+        words = words[1:]
+        while words and (words[0] in VALUE_OPTIONS or words[0].startswith("-")
+                         or "=" in words[0] or _is_duration(words[0])):
+            words = words[2:] if words[0] in VALUE_OPTIONS else words[1:]
+        if base == "uv" and words and words[0] == "run":
+            words = words[1:]
+    if words:
+        name = os.path.basename(words[0])
+        for extension in (".js", ".cjs", ".mjs"):   # "node .../npm-cli.js" is npm
+            if name.endswith(extension):
+                name = name[:-len(extension)]
+        words[0] = name[:-4] if name.endswith("-cli") else name
+    return words
+
+
+def classify(argv):
+    """Return (group, name) when this command line is a watched long job, otherwise None.
+
+    Only finite commands are listed on purpose: "npm run build" ends, "npm start" does not.
+    """
+    words = command_words(argv)
+    if not words:
+        return None
+    cmd, args = words[0], words[1:]
+    if cmd.endswith(".py"):   # started directly, or by "uv run train.py"
+        cmd, args = "python", [cmd] + args
+    if _is_python(cmd):
+        if args[:2] == ["-m", "pip"]:
+            cmd, args = "pip", args[2:]
+        elif args and not args[0].startswith("-") and os.path.basename(args[0]) in WATCH_SCRIPTS:
+            cmd, args = os.path.basename(args[0]), args[1:]
+    positional = _positional(args)
+    first, second = (positional + ["", ""])[:2]
+    if cmd in BUILD_TOOLS:
+        return "builds", cmd
+    if cmd == "cargo" and first == "build":
+        return "builds", "cargo build"
+    if cmd in PACKAGE_MANAGERS:
+        if first in ("run", "run-script") and (second == "build" or second.startswith("build:")):
+            return "builds", cmd + " build"
+        if first == "build" and cmd != "npm":
+            return "builds", cmd + " build"
+        if first in ("install", "i", "ci", "add") or (cmd == "yarn" and not positional):
+            return "builds", cmd + " " + ("install" if first in ("i", "") else first)
+    if (cmd == "pip" or cmd == "pip3" or cmd.startswith("pip3.")) and first == "install":
+        return "builds", "pip install"
+    if cmd == "docker" and (first == "build" or (first == "buildx" and second in ("build", "bake"))):
+        return "builds", "docker build"
+    if cmd in AGENT_NAMES:
+        return "agents", cmd
+    if _is_python(cmd):
+        target = args[1] if args[:1] == ["-m"] and len(args) > 1 else (positional[0] if positional else "")
+        text = "".join(c if c.isalnum() else " " for c in os.path.basename(target).lower())
+        if TRAIN_WORDS.intersection(text.split()):   # the script or module name only, not every argument
+            return "training", "python training script"
+    return None
+
+
+def _inspect(path, uptime):
+    """Describe one process as a watched job, or return None. May raise OSError or ValueError."""
+    with open(os.path.join(path, "stat"), "rb") as handle:
+        stat = handle.read(2048).decode("utf-8", "replace")
+    rest = stat[stat.rindex(")") + 2:].split()
+    if rest[0] in "ZTtXx":     # zombie, stopped or traced: not doing work
+        return None
+    with open(os.path.join(path, "cmdline"), "rb") as handle:
+        argv = [part.decode("utf-8", "replace") for part in handle.read(4096).split(b"\0") if part]
+    if any(os.path.basename(word) in OWN_FILES for word in " ".join(argv).split()):
+        return None            # never count the timer itself or its installer
+    found = classify(argv)
+    if not found:
+        return None
+    start = int(rest[19])
+    return {"group": found[0], "name": found[1], "key": "%s:%d" % (os.path.basename(path), start),
+            "age": uptime - start / CLK_TCK,
+            "cpu": sum(int(rest[index]) for index in (11, 12, 13, 14))}
+
+
+def watch_scan(groups):
+    """List running processes in the watched groups. Reads /proc only, starts no other program."""
+    if not os.path.isdir(PROC_ROOT):
+        raise RuntimeError("cannot read /proc, so the WATCH setting cannot be used here")
+    try:
+        with open(os.path.join(PROC_ROOT, "uptime"), "r") as handle:
+            uptime = float(handle.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        raise RuntimeError("cannot read /proc/uptime, so the WATCH setting cannot be used here") from None
+    mine = os.getpid()
+    jobs = []
+    with os.scandir(PROC_ROOT) as entries:
+        for entry in entries:
+            if not entry.name.isdigit() or int(entry.name) == mine:
+                continue
+            try:
+                job = _inspect(entry.path, uptime)
+            except (OSError, ValueError, IndexError):
+                continue       # the process ended while scanning
+            if job and job["group"] in groups:
+                jobs.append(job)
+    return jobs
+
+
+def watch_busy(cfg, cpu_path):
+    """Return "watched job: <name>" while a watched long job runs, otherwise None.
+
+    Builds and training runs older than WATCH_MAX_HOURS are ignored. An agent counts only while
+    its CPU time grows between checks (the last readings are kept in cpu_path), so an agent left
+    open and idle never keeps the instance on.
+    """
+    before = load(cpu_path)
+    after = {}
+    reason = None
+    limit = cfg.watch_max * 3600
+    for job in watch_scan(cfg.watch):
+        if job["group"] == "agents":
+            after[job["key"]] = job["cpu"]
+            last = before.get(job["key"])
+            # A newly seen agent counts as activity once, because it has just started. After that it counts
+            # only while its CPU time keeps growing.
+            if isinstance(last, int) and job["cpu"] - last < AGENT_MIN_CPU_SECONDS * CLK_TCK:
+                continue
+        elif job["age"] > limit:
+            continue
+        reason = reason or "watched job: " + job["name"]
+    if after != before:
+        record(cpu_path, after)
+    return reason
+
+
+def busy_reason(probe, check_sessions=True, watched=None):
     if check_sessions:
         if remote_sessions():
             return "remote login session"
         if ssm_session():
             return "Session Manager session"
+    if watched:
+        reason = watched()
+        if reason:
+            return reason
     if probe:
         result = run(probe, timeout=30)
         if result.returncode == 0:
@@ -238,10 +421,15 @@ def aws_call(ctx, service, region, params):
                    message.group(1) if message else data[:200])
 
 
+def plain_subject(subject):
+    """SNS accepts only a single line of printable ASCII (up to 99 characters) as a subject."""
+    return "".join(c if " " <= c <= "~" else "?" for c in subject)[:99]
+
+
 def publish(ctx, topic_arn, subject, message):
     region = topic_arn.split(":")[3] or ctx["region"]
     aws_call(ctx, "sns", region, {"Action": "Publish", "Version": "2010-03-31",
-                                  "TopicArn": topic_arn, "Subject": subject[:99],
+                                  "TopicArn": topic_arn, "Subject": plain_subject(subject),
                                   "Message": message})
 
 
@@ -292,9 +480,9 @@ def stopped_email(cfg, ctx, now_text):
     subject = f"EC2 {who} has stopped"
     body = (
         f"Hello,\n\n"
-        f"Your EC2 instance {who} in {ctx['region']} stopped at {now_text} after "
+        f"Your EC2 instance {who} in {ctx['region']} was told to stop at {now_text} after "
         f"{minutes(cfg.stop)} without activity.\n\n"
-        f"- Compute charges have stopped. Disk storage is still billed.\n"
+        f"- Compute charges end once it has fully stopped (usually within a minute). Disk storage is still billed.\n"
         f"- Your files, programs and settings are safe on its disk.\n\n"
     )
     if cfg.wake_url:
@@ -332,6 +520,34 @@ def load(path):
     return data if isinstance(data, dict) else {}
 
 
+def parse_watch(text):
+    """WATCH is empty (off) or a comma-separated list of: builds, agents, training."""
+    groups = []
+    for item in text.strip().split(","):
+        item = item.strip()
+        if not item and not text.strip():
+            break
+        if item not in WATCH_GROUPS:
+            raise ValueError("WATCH must be empty or a comma-separated list of: %s (got %r)"
+                             % (", ".join(WATCH_GROUPS), item))
+        if item not in groups:
+            groups.append(item)
+    return tuple(groups)
+
+
+def parse_on_off(name, text):
+    if text.strip() not in ("on", "off"):
+        raise ValueError("%s must be on or off" % name)
+    return text.strip() == "on"
+
+
+def parse_watch_hours(text):
+    text = text.strip()
+    if not text.isdigit() or not 1 <= int(text) <= WATCH_MAX_LIMIT_HOURS:
+        raise ValueError("WATCH_MAX_HOURS must be a whole number from 1 to %d" % WATCH_MAX_LIMIT_HOURS)
+    return int(text)
+
+
 def load_config(env):
     if env.get("IDLE_MODE") == "dry-run":   # an old settings file: refuse rather than start stopping for real
         raise ValueError("Dry-run mode was removed. Delete the IDLE_MODE line from /etc/ec2-idle.conf, "
@@ -345,6 +561,9 @@ def load_config(env):
         probe=env.get("WORK_PROBE", "").strip(),
         wake_url=env.get("WAKE_PAGE_URL", "").strip(),
         name=env.get("INSTANCE_NAME", "").strip(),
+        monthly=parse_on_off("MONTHLY_EMAIL", env.get("MONTHLY_EMAIL", "on")),
+        watch=parse_watch(env.get("WATCH", "")),
+        watch_max=parse_watch_hours(env.get("WATCH_MAX_HOURS", str(WATCH_DEFAULT_HOURS))),
     )
     if not 0 < cfg.warn < cfg.stop or cfg.retries < 1 or cfg.email_gap < 0:
         raise ValueError("Check WARN_MINUTES, STOP_MINUTES, WARN_RETRIES and WARN_EMAIL_GAP_MINUTES")
@@ -355,7 +574,7 @@ def load_config(env):
     return cfg
 
 
-def send_warning(cfg, ctx, state, emails, emails_path, state_path):
+def send_warning(cfg, ctx, state, emails, emails_path, state_path, context_error=None):
     """Send the warning email at most once per WARN_EMAIL_GAP_MINUTES."""
     last = emails.get("warned_at")
     if last is not None and time.time() - last < cfg.email_gap:
@@ -366,6 +585,8 @@ def send_warning(cfg, ctx, state, emails, emails_path, state_path):
         print("No SNS topic configured. Continuing without a warning email.")
         return
     try:
+        if ctx is None:   # no credentials yet: count it like a failed email, so the stop is never held back
+            raise RuntimeError(f"could not read this instance's details ({context_error})")
         publish(ctx, cfg.topic, *warning_email(cfg, ctx))
         emails["warned_at"] = time.time()
         record(emails_path, emails)
@@ -379,10 +600,111 @@ def send_warning(cfg, ctx, state, emails, emails_path, state_path):
               "Continuing without it.", file=sys.stderr)
 
 
-def send_stopped(cfg, ctx, emails, emails_path):
-    """Send one 'stopped' email per stop. Failures never block the stop."""
-    if emails.get("stopped_sent") or not cfg.topic:
+MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July", "August",
+               "September", "October", "November", "December")
+HEALTH_RETRY_SECONDS = 24 * 3600   # a failed monthly note is tried again at most once a day
+
+
+def month_key(timestamp):
+    """The UTC month of a timestamp as 'YYYY-MM' (UTC, so daylight saving never matters)."""
+    moment = time.gmtime(timestamp)
+    return "%04d-%02d" % (moment.tm_year, moment.tm_mon)
+
+
+def valid_month(value):
+    return (isinstance(value, str) and len(value) == 7 and value[4] == "-"
+            and value[:4].isdigit() and value[5:].isdigit() and 1 <= int(value[5:]) <= 12)
+
+
+def previous_month(key):
+    year, month = int(key[:4]), int(key[5:]) - 1
+    return "%04d-%02d" % ((year, month) if month else (year - 1, 12))
+
+
+def month_title(key):
+    return "%s %s" % (MONTH_NAMES[int(key[5:]) - 1], key[:4])
+
+
+def save(path, data):
+    """Write a small state file. Returns False instead of raising when the disk is not writable."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record(path, data)
+        return True
+    except OSError:
+        return False
+
+
+def count_stop(health_path):
+    """Add one to this month's count of stops (kept across reboots, for the monthly note)."""
+    health = load(health_path)
+    stops = health.get("stops")
+    stops = {key: value for key, value in (stops if isinstance(stops, dict) else {}).items()
+             if valid_month(key) and isinstance(value, int)}
+    month = month_key(time.time())
+    stops[month] = stops.get(month, 0) + 1
+    health["stops"] = {key: stops[key] for key in sorted(stops)[-3:]}
+    save(health_path, health)
+
+
+def health_email_text(cfg, ctx, month, last_month_stops):
+    who = label(cfg, ctx)
+    subject = f"EC2 {who}: idle stop is still working ({month_title(month)})"
+    lines = ["Hello,", "", f"Idle stop is still working on {who} in {ctx['region']}.", ""]
+    if last_month_stops is None:
+        lines.append("This is your first monthly note.")
+    else:
+        lines.append(f"Times it stopped the instance in {month_title(previous_month(month))}: {last_month_stops}")
+    if cfg.wake_url:
+        lines.append(f"Your wake page: {cfg.wake_url}")
+    lines.append("To stop these notes, run on the instance: bash install_guest.sh --monthly-email off")
+    return subject, "\n".join(lines) + "\n" + SIGNATURE
+
+
+def health_email(cfg, health_path):
+    """Send one short 'still working' email per calendar month. Never raises, never blocks a stop.
+
+    The month is saved only after SNS accepts the email, so a failure is retried (at most once a day).
+    The first run only records the month, because the setup email has just been sent.
+    """
+    if not cfg.topic or not cfg.monthly:
         return
+    now = time.time()
+    month = month_key(now)
+    health = load(health_path)
+    seen = health.get("month")
+    if seen == month:
+        return
+    if not valid_month(seen):   # first run, or a damaged file: start from this month
+        health["month"] = month
+        save(health_path, health)
+        return
+    if seen > month:            # the clock went backwards: wait
+        return
+    failed = health.get("failed_at")
+    if isinstance(failed, (int, float)) and 0 <= now - failed < HEALTH_RETRY_SECONDS:
+        return
+    health["failed_at"] = now   # claimed first, so a disk that can't be written never causes repeats
+    if not save(health_path, health):
+        return
+    stops = health.get("stops")
+    last = stops.get(previous_month(month), 0) if isinstance(stops, dict) else 0
+    try:
+        ctx = instance_context()
+        publish(ctx, cfg.topic, *health_email_text(cfg, ctx, month, last if isinstance(last, int) else 0))
+    except (OSError, RuntimeError, ValueError, KeyError) as error:
+        print(f"Monthly note failed ({error}). It will be tried again within a day.", file=sys.stderr)
+        return
+    health["month"] = month
+    health.pop("failed_at", None)
+    save(health_path, health)
+    print("Monthly note accepted by SNS.")
+
+
+def send_stopped(cfg, ctx, emails, emails_path):
+    """Send one 'stopped' email per stop. Failures never block the stop. True when it counts a new stop."""
+    if emails.get("stopped_sent") or not cfg.topic:
+        return False
     import datetime
     now_text = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M UTC on %d %b %Y")
     try:
@@ -392,22 +714,36 @@ def send_stopped(cfg, ctx, emails, emails_path):
         print(f"Stopped email failed ({error}). The stop was still requested.", file=sys.stderr)
     emails["stopped_sent"] = True
     record(emails_path, emails)
+    return True
 
 
-def watch(cfg, state_path):
+def watch(cfg, state_path, health_path=None):
     emails_path = state_path.with_name("emails.json")
+    health_path = health_path or state_path.with_name("health.json")
+    try:
+        health_email(cfg, health_path)
+    except Exception as error:   # the monthly note must never get in the way of the stop
+        print(f"Monthly note skipped ({error}).", file=sys.stderr)
+
+    cpu_path = state_path.with_name("watch.json")
+    watched = (lambda: watch_busy(cfg, cpu_path)) if cfg.watch else None
 
     def activity():
         try:
-            return busy_reason(cfg.probe)
+            return busy_reason(cfg.probe, watched=watched)
         except (OSError, subprocess.SubprocessError, RuntimeError):
             record(state_path, {})
             raise
 
     busy = activity()
     now = time.monotonic()
-    state = advance(load(state_path), now, busy)
+    before = load(state_path)
+    state = advance(before, now, busy)
     if busy:
+        if before.get("stop_requested") is not None:   # a stop was requested but you are back: allow a new "stopped" email
+            emails = load(emails_path)
+            emails.pop("stopped_sent", None)
+            record(emails_path, emails)
         record(state_path, state)
         print(f"Busy ({busy}). Idle clock reset.")
         return
@@ -419,9 +755,13 @@ def watch(cfg, state_path):
     ctx = None
     if elapsed >= cfg.warn and state.get("warned") is None:
         emails = load(emails_path)
+        context_error = None
         if cfg.topic:
-            ctx = instance_context()
-        send_warning(cfg, ctx, state, emails, emails_path, state_path)
+            try:
+                ctx = instance_context()
+            except (OSError, RuntimeError) as error:
+                context_error = error
+        send_warning(cfg, ctx, state, emails, emails_path, state_path, context_error)
         state["warned"] = time.monotonic()
         record(state_path, state)
 
@@ -439,7 +779,11 @@ def watch(cfg, state_path):
         return
     stop_instance(ctx)
     print("Requested EC2 StopInstances.")
-    send_stopped(cfg, ctx, load(emails_path), emails_path)
+    if send_stopped(cfg, ctx, load(emails_path), emails_path):
+        try:
+            count_stop(health_path)
+        except Exception as error:   # only a count for the monthly note: never worth failing the tick
+            print(f"Stop count skipped ({error}).", file=sys.stderr)
     state["stop_requested"] = now
     record(state_path, state)
 
@@ -469,6 +813,23 @@ def check(cfg, expect_session=False, test_email=False):
         ok(f"Session Manager check works (open: {'yes' if ssm_session() else 'no'})")
     except (OSError, subprocess.SubprocessError, RuntimeError) as error:
         fail(f"Session Manager check failed: {error}")
+    if cfg.watch:
+        try:
+            jobs = watch_scan(cfg.watch)
+            ok("Long-job check works (watching: %s; ignoring builds and training older than %d hours)"
+               % (", ".join(cfg.watch), cfg.watch_max))
+            for job in jobs:
+                if job["group"] == "agents":
+                    note = "counts only while it uses CPU"
+                elif job["age"] > cfg.watch_max * 3600:
+                    note = "running %.0f hours, too old, ignored" % (job["age"] / 3600)
+                else:
+                    note = "counts as busy, running %.0f minutes" % (job["age"] / 60)
+                print("      running now: %s (%s, %s)" % (job["name"], job["group"], note))
+            if not jobs:
+                print("      nothing watched is running right now")
+        except (OSError, RuntimeError) as error:
+            fail(f"Long-job check failed: {error}")
     if cfg.probe:
         try:
             code = run(cfg.probe, timeout=30).returncode
@@ -510,6 +871,8 @@ def check(cfg, expect_session=False, test_email=False):
                         f"- You'll get one email when it stops, after {minutes(cfg.stop)} "
                         f"without activity"
                         + (", with your wake page link.\n" if cfg.wake_url else ".\n")
+                        + (f"- You'll also get one short 'still working' note a month. "
+                           f"Turn it off with install_guest.sh --monthly-email off.\n" if cfg.monthly else "")
                         + SIGNATURE)
                 ok("Test email accepted by SNS. Confirm the subscription email if you have not.")
             except (OSError, RuntimeError) as error:
@@ -538,7 +901,8 @@ def main(argv=None):
     cfg = load_config(os.environ)
     if args.check or args.test_email:
         return check(cfg, args.expect_session, args.test_email)
-    watch(cfg, Path(os.environ.get("RUNTIME_DIRECTORY", "/run/ec2-idle")) / "state.json")
+    watch(cfg, Path(os.environ.get("RUNTIME_DIRECTORY", "/run/ec2-idle")) / "state.json",
+          Path(os.environ.get("STATE_DIRECTORY", "/var/lib/ec2-idle")) / "health.json")
     return 0
 
 

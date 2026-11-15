@@ -24,8 +24,8 @@ def main():
     if "\t" in code:
         raise SystemExit("wake_ec2.py must not contain tab characters")
     block = [INDENT + line if line else "" for line in code.split("\n")]
-    template.write_text("\n".join(lines[:start] + block + lines[end:]), encoding="utf-8",
-                        newline="\n")
+    with open(template, "w", encoding="utf-8", newline="\n") as handle:   # write_text(newline=) needs Python 3.10
+        handle.write("\n".join(lines[:start] + block + lines[end:]))
     print(f"Updated {template.name} with {len(block)} lines of wake_ec2.py")
 
 

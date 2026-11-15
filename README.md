@@ -30,10 +30,10 @@ Your EC2 instance (a computer you rent from AWS) turns itself off when you stop 
 | | Feature | What it means for you |
 |---|---|---|
 | 💤 | **Stops by itself** | A tiny timer inside the instance checks every minute and stops it after 45 idle minutes. It's lightweight enough for the smallest instance and stays out of the way of heavy workloads. No other machine is involved. |
-| 🌐 | **Wake page** | A private link to open on any browser or phone. Type your PIN (tick **Remember on this device** to type it only once), tap **Wake**, and it shows when the instance is ready and the command to connect. Or bookmark `link#PIN` to wake with **one tap**. |
+| 🌐 | **Wake page** | A private link to open on any browser or phone. Type your PIN (tick **Remember on this device** to type it only once. The browser then keeps the PIN, and the one-tap link below does the same), tap **Wake**, and it shows when the instance is ready and the command to connect. Or bookmark `link#PIN` to wake with **one tap**. |
 | ⌨️ | **Wake from a terminal or code** | One command wakes the instance, waits until it's ready, and prints the progress. Scripts and AI agents can use it too. |
 | ⏰ | **Work-hours start** (optional) | It starts on a timetable you choose, for example 9:00 on weekdays. |
-| 🛡️ | **Protects your work** | Open connections (SSH, VS Code, Cursor and others) keep it awake. You can also keep it awake for long jobs that run after you disconnect. |
+| 🛡️ | **Protects your work** | Open connections (SSH, VS Code, Cursor and others) keep it awake. You can also keep it awake for long builds, AI agents and training runs that carry on after you disconnect, with one option (`--watch`) or your own check. |
 | 🧯 | **Safe by design** | Random internet traffic can't keep it awake, a broken email can't stop it from stopping, and an optional backup alarm can tell you if the timer ever stops working. |
 | 💾 | **Nothing is lost** | Stopping is like shutting a laptop lid. Your files, programs and settings stay on the disk. |
 
@@ -64,6 +64,7 @@ Never more than these, so your inbox stays quiet:
 | **"… will stop in 15 minutes"** | After 30 minutes with no activity | **At most once per hour**, even if you come and go |
 | **"… has stopped"** | Right after it stops, with your **wake page link** and a ready-to-copy wake command | **Once per stop** |
 | **"Idle stop is set up"** | When you first install, or change the email topic | Once |
+| **"… idle stop is still working"** | The first time the instance is running in a new month. It's a short "still alive" note, so silence never hides a broken timer. Turn it off with `--monthly-email off`. | **Once a month**, and only if you set up emails |
 | **AWS "ALARM"** (optional backup alarm, **off by default**) | Only if you turn it on: after hours of quiet running, for example an editor left open or a broken timer. | Once per incident |
 
 Email trouble never blocks the stop, so a broken email setup can't leave the instance running and costing money.
@@ -167,10 +168,12 @@ The example assumes:
 
 Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricing/on-demand/)
 
+Want a safety net? You can get an email if your AWS bill goes over a number you choose. It takes two minutes and isn't part of the stack: [set a spend alert](SETUP.md#-optional-set-a-spend-alert).
+
 > [!IMPORTANT]
 > ⚠️ **What uses extra credit:**
 > - An editor window left open, because it counts as working.
-> - Long jobs you've marked as "keep awake".
+> - Long jobs you've marked as "keep awake" (your own check or `--watch`).
 > - The 45-minute wind-down after each session.
 >
 > Run one [full test](TESTING.md#-level-5-live-acceptance-cycle) before relying on the savings.
@@ -179,8 +182,8 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 
 ## 🔐 Is it safe?
 
-- 🔑 **The wake page needs your PIN.** You choose a short one (for example 4821). Even someone with both the link and the PIN can only *start* the instance. They can't log in, read files or stop it, and it turns itself off again when idle.
-- 🔒 **Wrong guesses lock the page.** 5 wrong PINs lock it for 15 minutes, so a short PIN can't be guessed. A tiny database table counts the tries (normal use costs well under a cent a month). If it can't, the page stays closed rather than open. The lock is shared by everyone, including you, so someone guessing wrong can lock you out for 15 minutes. You can still start the instance from the EC2 console.
+- 🔑 **The wake page needs your PIN.** You choose a short one (for example 1234). Even someone with both the link and the PIN can only *start* the instance. They can't log in, read files or stop it, and it turns itself off again when idle.
+- 🔒 **Wrong guesses lock the page.** 5 wrong PINs lock it for 15 minutes. That's about 480 guesses a day at most, which makes a PIN of 4 digits slow to guess (about 10 days of non-stop guessing on average) but not impossible, so a longer mix such as `blue7tiger` is safer. Anyone who has the link can also keep the page locked. A tiny database table counts the tries (normal use costs well under a cent a month). If it can't, the page stays closed rather than open. The lock is shared by everyone, including you, so someone guessing wrong can lock you out for 15 minutes. You can still start the instance from the EC2 console. **Locked out or forgot your PIN?** As the account owner you can clear the lock with one command from the stack's outputs, or set a new PIN in a minute. See [locked out or forgot the PIN](RUNBOOK.md#-locked-out-or-forgot-the-pin).
 - 🤫 **Your PIN is hidden in the stack form and the stack's details.** It's kept in the wake page's own settings (a Lambda setting), which only people with access to your AWS account can read. They can already start and stop the instance anyway.
 - 🧩 **Each part has the smallest possible permission.** The wake page can only start this one instance, and the instance can only stop itself.
 - 🤖 **AI agents need your yes for every change.** Reading the docs gives them no permission. See the [agent rules](AGENT_SETUP.md#-step-0-rules-for-the-agent).
@@ -247,7 +250,7 @@ The CI containers have no systemd, so they prove the installer finds Python and 
 | [ec2-idle-stack.yaml](src/ec2-idle-stack.yaml) | ☁️ AWS CloudFormation | Wake page, permissions, email, optional schedule and optional backup alarm |
 | [discover.sh](src/discover.sh) | ☁️ AWS CloudShell | Read-only check of the 5 things that can block setup |
 | [install_guest.sh](src/install_guest.sh) | 🖥️ Your EC2 instance | One-time install, or uninstall, of the idle timer. Installs missing prerequisites. |
-| [temp_ssh.sh](src/temp_ssh.sh) | ☁️ AWS CloudShell | Opens, and closes, a temporary SSH rule for your IP only, when you need a shell |
+| [temp_ssh.sh](src/temp_ssh.sh) | 💻 Your own computer | Opens, and closes, a temporary SSH rule for your IP only, when you need a shell |
 | [ec2_idle.py](src/ec2_idle.py), [ec2-idle.service](src/ec2-idle.service), [ec2-idle.timer](src/ec2-idle.timer), [ec2-idle.conf](src/ec2-idle.conf) | 🖥️ Your EC2 instance | Idle timer program and settings |
 | [wake_ec2.py](src/wake_ec2.py) | ☁️ AWS Lambda | Wake page program (built into the stack file) |
 | [ec2_up.py](src/ec2_up.py) | 💻 Your computer, optional | Your normal `ssh` waits while a stopped instance wakes, then connects |

@@ -46,7 +46,7 @@ flowchart TB
 
 | Piece | Lives in | Runs when | Allowed to |
 |---|---|---|---|
-| Idle timer (`ec2_idle.py`) | The instance | Every minute, starting 5 minutes after boot | Stop **its own** instance and send **its own** emails (one warning, one "stopped") |
+| Idle timer (`ec2_idle.py`) | The instance | Every minute, starting 5 minutes after boot | Stop **its own** instance and send **its own** emails (one warning, one "stopped", and one short monthly "still working" note) |
 | Wake page (`wake_ec2.py`) | AWS Lambda | You open it, or call it with your PIN | Look up instances, start **this** instance, and keep its small wrong-PIN counter |
 | Work-hours start | AWS EventBridge Scheduler | On your timetable | Start **this** instance |
 | Backup alarm (optional, off by default) | AWS CloudWatch | CPU stays under 3% for the hours you chose while running | Email you |
@@ -78,7 +78,8 @@ stateDiagram-v2
 - ✉️ **You always get the full warning time.** The 15 minutes count from when the email was actually sent.
 - 🧯 **Email trouble can't block the stop.** After 3 failed emails in a row, it stops without one. The "stopped" email is sent after the stop request, so it can never delay it.
 - 📬 **Quiet inbox.** At most one warning email per hour, even if you connect and disconnect several times, and one "stopped" email per stop.
-- 🔁 **Every boot starts fresh.** The idle clock and the email limit are kept in memory only, so a restart resets both.
+- 🩺 **A monthly "still working" note.** The first check of each new month (UTC) sends one short email, so silence never hides a broken timer. The month is saved only after AWS accepts the email, a failed send is retried at most once a day, and it never touches the stop. Turn it off with `--monthly-email off`. It uses a few emails a year, far below the free allowance.
+- 🔁 **Every boot starts fresh.** The idle clock and the email limit are kept in memory only, so a restart resets both. The one exception is the monthly note's month and stop count, which are kept on disk (`/var/lib/ec2-idle`), because the instance is stopped and started all the time. The note can only be sent while the instance is running.
 
 ### What counts as "in use"
 
@@ -86,8 +87,11 @@ stateDiagram-v2
 |---|---|
 | A logged-in SSH connection, including VS Code and Cursor | Random internet traffic hitting the SSH port, which never logs in |
 | EC2 Instance Connect and Session Manager sessions | An editor window you already closed |
-| Anything your long-job check reports as busy | Web apps used without an SSH login |
-| | Background jobs you didn't add to the long-job check |
+| Builds, busy AI agents and training runs, if you turned on `--watch` | Web apps used without an SSH login |
+| Anything your own long-job check (probe) reports as busy | Background jobs that neither check covers |
+| | An AI agent left open and idle, or a build or training run older than 12 hours |
+
+The ready-made check (`--watch`) reads the process list from `/proc`, so it starts no other program and needs nothing installed. It only lists commands that finish (`npm run build` yes, `npm start` no) and skips zombie and stopped processes. A newly started agent counts once, and after that only while its processor time grows between two checks, and the timer never counts itself or its installer. It is best effort, so use your own probe for anything it doesn't recognise.
 
 ---
 
@@ -97,7 +101,7 @@ The timer is built to be invisible, even on the smallest instance or one that's 
 
 | What | How |
 |---|---|
-| **Almost no work most minutes** | A normal check starts no other programs. It reads login sessions through systemd's own library and Session Manager sessions from `/proc`, then exits. (A long-job check, if you add one, runs once a minute.) |
+| **Almost no work most minutes** | A normal check starts no other programs. It reads login sessions through systemd's own library and Session Manager sessions from `/proc`, then exits. (The ready-made long-job check, if you turn it on, reads `/proc` once a minute. Your own probe, if you add one, runs once a minute.) |
 | **Network code only when needed** | The AWS signing and HTTPS code loads only when an email or a stop is due. |
 | **Fast start** | Python runs with `-I -S` (isolated, without site packages). |
 | **Low priority** | It runs at `Nice=10` with `CPUWeight=20` and low IO priority, so your workloads always come first. |
@@ -115,7 +119,7 @@ The timer is meant to run on almost any Linux instance, so it is built from as l
 |---|---|
 | **Python standard library only** | Nothing to install from a package index, and no compiled parts. The timer works on x86_64 and on Graviton (arm64) alike. |
 | **Python 3.6 or newer** | RHEL, Rocky and Alma 8, SUSE 15 and Amazon Linux 2 ship 3.6 or 3.7. Current releases ship 3.12 to 3.14. The tests run on every version from 3.6 to 3.14. |
-| **The installer finds or installs Python** | It knows apt, dnf, yum, zypper and pacman, so a minimal image still works. |
+| **The installer finds or installs Python** | It knows apt, dnf, yum, zypper, pacman and apk, so a minimal image still works. |
 | **Logged-in sessions come from systemd** | The same idea `autosuspend`, a popular suspend-when-idle daemon, uses. It makes VS Code and Cursor sessions count, and scanners not. |
 | **State lives in `/run/ec2-idle`** | It's created by the service itself, because the usual systemd setting for it only exists from version 235. Older systems such as Amazon Linux 2 would lose it between runs. |
 | **Older systemd is tolerated** | Resource limits the system doesn't know are ignored with a warning, not an error. |
@@ -163,13 +167,15 @@ sequenceDiagram
 | Choice | Why | Not chosen |
 |---|---|---|
 | A public link protected by a short PIN | It works on any device with no AWS login. The worst a stranger with the PIN can do is start it, and it stops again by itself. | AWS-signed requests, which need AWS tools and logins that expire. |
-| 5 wrong tries lock the page for 15 minutes | A short, easy PIN can't be guessed in practice. A tiny table counts the tries, and if it can't, the page stays closed. | A long random key, which is a pain to type and move around. |
+| 5 wrong tries lock the page for 15 minutes | About 480 guesses a day at most, so a short PIN is slow to guess (a longer mix is safer). A tiny table counts the tries, and if it can't, the page stays closed. | A long random key, which is a pain to type and move around. |
+| Recovery uses your AWS sign-in, not a second secret | If the PIN is forgotten or the page is locked, you clear the lock (the stack's **ClearLockCommand** output deletes the counter) or set a new PIN by updating the stack. Both need AWS account access, which already guards everything else. The PIN is never read back, and the lock stays at 5 tries for 15 minutes. | An emailed reset link or a recovery code. Those add a way in for anyone who gets the email or loses the code. |
 | The PIN is stored as a hidden stack setting | Hashing a short PIN adds no real protection, and setup stays one simple step. | A hash you had to compute by hand. |
 | The timer talks to AWS directly | Nothing extra to install on the instance. | Installing the AWS command-line tools. |
 | Only logged-in sessions count | Internet scanners can't keep it awake. | Counting any network connection. |
 | The backup alarm only emails | Quiet editing uses little CPU, so an automatic stop could cut you off. | Stopping automatically on low CPU. |
 | The instance finds its own ID | Nothing to type wrong, and it can only ever stop itself. | Typing the ID into a settings file. |
 | Terminal wakes wait before replying | One command gives you a final answer. | Live streaming, which this Lambda runtime can't do. |
+| Spend alerts are a guide, not part of the stack | A budget belongs to your whole account, so a stack-owned one would duplicate and vanish with the stack. Some accounts limit Budgets, and a resource that can't be created would break the stack. Docs can't ([how to set one](SETUP.md#-optional-set-a-spend-alert)). | A budget resource in the stack. |
 | No "wake on SSH attempt" | AWS only notices such attempts minutes later, and not reliably. | Watching network logs. |
 
 ---
