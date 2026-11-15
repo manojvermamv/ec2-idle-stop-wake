@@ -6,16 +6,10 @@ Description: >-
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
-      - Label: {default: Instance}
-        Parameters: [InstanceId, InstanceRoleName, SshUser, EbsKmsKeyArn]
-      - Label: {default: Wake page}
-        Parameters: [WakePin, WakeDryRun, WakeMaxConcurrency]
-      - Label: {default: Idle warning email}
-        Parameters: [NotificationEmail]
-      - Label: {default: Optional work-hours start}
-        Parameters: [WorkHoursStart, ScheduleTimezone]
-      - Label: {default: Optional backup alarm}
-        Parameters: [BackupAlarmHours, BackupAlarmCpuPercent, BackupAlarmAction]
+      - Label: {default: "Basic (instance, PIN and email)"}
+        Parameters: [InstanceId, WakePin, NotificationEmail]
+      - Label: {default: Advanced (all optional)}
+        Parameters: [WorkHoursStart, BackupAlarmHours, InstanceRoleName, EbsKmsKeyArn, SshUser]
 
 Parameters:
   InstanceId:
@@ -50,19 +44,6 @@ Parameters:
     Description: >-
       Your PIN for the wake page, 4 to 64 letters and numbers (for example 4821). 5 wrong tries lock
       the page for 15 minutes. It can only start the instance. Save it in your password manager.
-  WakeDryRun:
-    Type: String
-    AllowedValues: ["false", "true"]
-    Default: "false"
-    Description: true = the Wake button only checks permission and never starts the instance.
-  WakeMaxConcurrency:
-    Type: Number
-    Default: 0
-    MinValue: 0
-    MaxValue: 10
-    Description: >-
-      Optional flood guard. Caps simultaneous wake page requests. 0 = no cap. If your Lambda
-      concurrency quota is 100 or less (new accounts often have 10), keep 0. Above 100, 3 is a good cap.
   NotificationEmail:
     Type: String
     Default: ""
@@ -71,42 +52,27 @@ Parameters:
   WorkHoursStart:
     Type: String
     Default: ""
-    AllowedPattern: "^$|^cron\\(.+\\)$"
+    AllowedPattern: "^$|^cron\\([^|]+\\)(\\|[A-Za-z_]+(/[A-Za-z0-9_+-]+){0,2})?$"
     Description: >-
-      Optional. When to start the instance automatically, as an EventBridge Scheduler cron
-      expression. Example for 9:00 on weekdays: cron(0 9 ? * MON-FRI *). Empty = no schedule.
-  ScheduleTimezone:
-    Type: String
-    Default: UTC
-    Description: Time zone for WorkHoursStart, for example Australia/Sydney or Asia/Kolkata.
+      Optional. When to start the instance automatically: a cron expression, then optionally a | and a time zone.
+      Example for 9:00 on weekdays in India: cron(0 9 ? * MON-FRI *)|Asia/Kolkata. Without a time zone it
+      runs in UTC. Empty = no schedule.
   BackupAlarmHours:
     Type: Number
-    Default: 4
+    Default: 0
     MinValue: 0
     MaxValue: 24
     Description: >-
-      Backup in case the idle watcher stops working. Alarm after this many hours running
-      below BackupAlarmCpuPercent. 0 = no alarm.
-  BackupAlarmCpuPercent:
-    Type: Number
-    Default: 3
-    MinValue: 1
-    MaxValue: 50
-    Description: Average CPU percent treated as idle by the backup alarm.
-  BackupAlarmAction:
-    Type: String
-    AllowedValues: [notify, stop]
-    Default: notify
-    Description: notify = email only. stop = also stop the instance when the alarm fires.
+      Optional, off by default. A backup in case the idle timer silently stops working: alarm
+      after this many hours of running below 3 percent CPU (try 4). 0 = no alarm. Needs
+      NotificationEmail. A long quiet session, such as an open editor, can also trigger it.
 
 Conditions:
   HasEmail: !Not [!Equals [!Ref NotificationEmail, ""]]
   CreateRole: !Equals [!Ref InstanceRoleName, ""]
   HasSchedule: !Not [!Equals [!Ref WorkHoursStart, ""]]
-  AlarmStops: !Equals [!Ref BackupAlarmAction, stop]
   AlarmEnabled: !Not [!Equals [!Ref BackupAlarmHours, "0"]]
-  CreateAlarm: !And [!Condition AlarmEnabled, !Or [!Condition HasEmail, !Condition AlarmStops]]
-  LimitWakeConcurrency: !Not [!Equals [!Ref WakeMaxConcurrency, "0"]]
+  CreateAlarm: !And [!Condition AlarmEnabled, !Condition HasEmail]
   HasKmsKey: !Not [!Equals [!Ref EbsKmsKeyArn, ""]]
 
 Resources:
@@ -228,7 +194,6 @@ Resources:
       MemorySize: 128
       # Long enough for a terminal "wake and wait" request (up to 150 seconds).
       Timeout: 180
-      ReservedConcurrentExecutions: !If [LimitWakeConcurrency, !Ref WakeMaxConcurrency, !Ref AWS::NoValue]
       Role: !GetAtt WakeFunctionRole.Arn
       LoggingConfig:
         LogGroup: !Ref WakeLogGroup
@@ -238,7 +203,6 @@ Resources:
           WAKE_PIN: !Ref WakePin
           LOCK_TABLE: !Ref WakeLockTable
           SSH_USER: !Ref SshUser
-          DRY_RUN: !Ref WakeDryRun
       Code:
         # Keep identical to wake_ec2.py. test_workflow.py checks this.
         ZipFile: |
@@ -255,7 +219,6 @@ Resources:
           so even a short PIN cannot be guessed. The PIN can only start the instance.
           """
 
-          import base64
           import hmac
           import json
           import os
@@ -401,7 +364,7 @@ Resources:
             $("wake").disabled = $("status").disabled = true;
             try {
               const data = await call(action);
-              if (data && action === "wake" && !data.ready && !data.dryRun && attempt < 60
+              if (data && action === "wake" && !data.ready && attempt < 60
                   && data.state !== "terminated" && data.state !== "shutting-down") {
                 timer = setTimeout(() => run("wake", attempt + 1), 5000);
               } else if (data && data.ready && action === "wake") {
@@ -440,7 +403,7 @@ Resources:
               """Return a dict of request fields from a JSON or form body."""
               body = event.get("body") or ""
               if event.get("isBase64Encoded"):
-                  body = base64.b64decode(body).decode("utf-8")
+                  raise ValueError("Send the PIN as a plain form or JSON body")
               headers = lowered(event.get("headers"))
               kind = headers.get("content-type", "")
               if "json" in kind or body.lstrip().startswith("{"):
@@ -451,9 +414,7 @@ Resources:
               else:
                   fields = {name: values[-1] for name, values in urllib.parse.parse_qs(body).items()}
                   fields["_body"] = "form"
-              pin = (fields.get("pin") or fields.get("key") or headers.get("x-wake-pin")
-                     or headers.get("x-wake-key") or "")
-              fields["pin"] = str(pin).strip()[:128]
+              fields["pin"] = str(fields.get("pin") or "").strip()[:128]
               return fields, headers
 
 
@@ -609,7 +570,7 @@ Resources:
               return data
 
 
-          def wake(instance_id, budget, dry_run):
+          def wake(instance_id, budget):
               """Start the instance if needed and wait up to budget seconds until it is ready."""
               began = time.monotonic()
               progress, last, started = [], None, False
@@ -624,16 +585,6 @@ Resources:
                       note(state)
                       last = state
                   if state == "stopped" and not started:
-                      if dry_run:
-                          try:
-                              ec2.start_instances(InstanceIds=[instance_id], DryRun=True)
-                          except ClientError as error:
-                              if error.response["Error"]["Code"] != "DryRunOperation":
-                                  raise
-                              note("dry run: start permission verified")
-                              return {**summary(instance, state), "dryRun": True, "progress": progress,
-                                      "message": "Dry run. Start permission verified."}
-                          raise RuntimeError("EC2 did not return the expected DryRunOperation")
                       try:
                           result = ec2.start_instances(InstanceIds=[instance_id])
                           started = True
@@ -711,9 +662,9 @@ Resources:
                   print(f"status: {data['state']}")
                   return reply(200, data, text)
 
-              data = wake(instance_id, budget, os.environ.get("DRY_RUN", "false").lower() == "true")
+              data = wake(instance_id, budget)
               print(f"wake: {data['state']} ready={data['ready']} after {data['progress'][-1]['seconds']}s")
-              if data["ready"] or data.get("dryRun"):
+              if data["ready"]:
                   status = 200
               elif data["state"] in ENDED or data["state"] == "stopping":
                   status = 409
@@ -782,8 +733,9 @@ Resources:
     Condition: HasSchedule
     Properties:
       Description: Starts the EC2 instance at the start of work hours.
-      ScheduleExpression: !Ref WorkHoursStart
-      ScheduleExpressionTimezone: !Ref ScheduleTimezone
+      # WorkHoursStart is "cron(...)" or "cron(...)|Time/Zone". Without a zone this gives UTC.
+      ScheduleExpression: !Select [0, !Split ["|", !Ref WorkHoursStart]]
+      ScheduleExpressionTimezone: !Select [1, !Split ["|", !Join ["|", [!Ref WorkHoursStart, "UTC"]]]]
       FlexibleTimeWindow: {Mode: "OFF"}
       State: ENABLED
       Target:
@@ -800,11 +752,11 @@ Resources:
     Condition: CreateAlarm
     Properties:
       AlarmDescription: !Sub >-
-        EC2 ${InstanceId} has been running quietly (under ${BackupAlarmCpuPercent} percent CPU)
+        EC2 ${InstanceId} has been running quietly (under 3 percent CPU)
         for ${BackupAlarmHours} hours. Either a session or editor window is still open, or the
         idle timer is not installed or not working. On the instance, check with
         systemctl list-timers ec2-idle.timer. This can also fire right after the stack is
-        created if the instance was already idle and the timer is not installed yet.
+        created (or this alarm turned on) if the instance was already idle.
       Namespace: AWS/EC2
       MetricName: CPUUtilization
       Dimensions:
@@ -813,16 +765,10 @@ Resources:
       Statistic: Average
       Period: 3600
       EvaluationPeriods: !Ref BackupAlarmHours
-      Threshold: !Ref BackupAlarmCpuPercent
+      Threshold: 3
       ComparisonOperator: LessThanThreshold
       TreatMissingData: notBreaching
-      AlarmActions: !If
-        - AlarmStops
-        - !If
-          - HasEmail
-          - [!Sub "arn:${AWS::Partition}:automate:${AWS::Region}:ec2:stop", !Ref AlertTopic]
-          - [!Sub "arn:${AWS::Partition}:automate:${AWS::Region}:ec2:stop"]
-        - [!Ref AlertTopic]
+      AlarmActions: [!Ref AlertTopic]
 
 Outputs:
   WakePageUrl:

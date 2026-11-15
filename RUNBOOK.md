@@ -42,6 +42,7 @@ One command wakes the instance, waits until it's ready (up to 2 minutes), and te
 state: running
 ready: yes
 public_ip: 3.25.10.20
+private_ip: 172.31.5.9
 ssh: ssh ubuntu@3.25.10.20
 progress:
     0s  stopped
@@ -67,7 +68,7 @@ When `ready: yes` appears, run the `ssh:` line to connect.
 
 | Reply code | Meaning |
 |---|---|
-| `200` | Ready, or a status or dry-run reply |
+| `200` | Ready, or a status reply |
 | `202` | Still starting. Ask again. |
 | `409` | Stopping, shutting down or deleted |
 | `403` | Wrong PIN |
@@ -145,7 +146,7 @@ sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idl
 | `Busy (remote login session)` | A connection is still open somewhere, often a forgotten editor window. | Close it. To find it, run `loginctl list-sessions`. To end it, run `sudo loginctl terminate-session <ID>`. |
 | `Busy (workload)` | Your long-job check still finds a running job. | Run the check by hand, then `echo $?`. Make its pattern stricter. |
 | Errors in the log | It's missing a permission or setting. | Run the `--check` command above. It names the problem. |
-| An "ALARM" email from the backup alarm | The instance ran quietly for hours without stopping. There are three possible reasons: an editor or session is still open, the timer isn't installed or working, or the stack was just created on an already-idle instance before the timer was installed. | Run the three commands above. If the timer is fine and nothing is open, it was a one-off from setup and clears once the instance stops. |
+| An "ALARM" email from the optional backup alarm | The instance ran quietly for hours without stopping. There are three possible reasons: an editor or session is still open, the timer isn't installed or working, or the stack was just created on an already-idle instance before the timer was installed. | Run the three commands above. If the timer is fine and nothing is open, it was a one-off from setup and clears once the instance stops. |
 
 ### ⛔ It stopped while I was working
 
@@ -155,7 +156,7 @@ Only logged-in connections count as activity. Web apps you use without an SSH lo
 
 1. Confirm the subscription email from AWS, and check your spam folder.
 2. To send a test, run the `--check` command with `--test-email` added.
-3. **Expected quiet:** after one warning, no second one is sent for 60 minutes, even if you reconnect and leave again. The log then says `Warning email skipped`.
+3. **Expected quiet:** after one warning, no second one is sent for 60 minutes, even if you reconnect and leave again. The log then says `Warning email skipped`. The limit resets when the instance restarts.
 4. **No link in the stopped email?** Run the installer again with `--wake-url <WAKE_URL>` (included in the stack's **GuestInstallCommand**).
 
 If emails keep failing, the instance still stops after 3 tries, so it doesn't run up costs.
@@ -165,7 +166,7 @@ If emails keep failing, the instance still stops after 3 tries, so it doesn't ru
 | You see | Fix |
 |---|---|
 | `error: Wrong PIN` | Check your password manager. After 5 wrong tries the page locks for 15 minutes. |
-| `error: Too many wrong PIN tries` | Wait the time it says (up to 15 minutes), then use the right PIN. The lock ends by itself. If you forgot the PIN, [set a new one](#-change-settings). |
+| `error: Too many wrong PIN tries` | Wait the time it says (up to 15 minutes), then use the right PIN. The lock ends by itself. It's shared by everyone, so someone else's wrong guesses can lock you out too. If you can't wait, start the instance from the EC2 console. If you forgot the PIN, [set a new one](#-change-settings). |
 | It shows `pending`, then back to `stopped` | Check the reason in the EC2 console. If your disk uses your own encryption key, set `EbsKmsKeyArn` in the stack. A capacity shortage usually clears on retry. |
 | `409` for a long time | The instance is stuck stopping. Use **Force stop** in the EC2 console. |
 | `ready: yes`, but SSH times out | Your security group must allow your IP on port 22. Without a fixed IP, use the new address shown. |

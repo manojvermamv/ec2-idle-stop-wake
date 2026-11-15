@@ -30,7 +30,7 @@
 > - **Step 2:** use the console upload.
 > - **Step 3:** use the console steps.
 
-**The six steps:**
+**The seven steps (0 to 6):**
 
 | Step | What | Time |
 |---|---|---|
@@ -58,14 +58,17 @@ Collect the values the next steps need. You can let a script find most of them, 
 ```bash
 git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git && cd ec2-idle-stop-wake/src
 bash discover.sh                           # lists your instances
-bash discover.sh --instance <INSTANCE_ID>  # checks one and suggests settings
+bash discover.sh --instance <INSTANCE_ID>  # checks one
 ```
 
+It checks the 5 things that can block setup: an EBS root disk, not Windows or Spot, instance metadata on, an existing role, and your Elastic IP and SSH route.
+
 **You should see:**
-- A **Suggested stack parameters** list. Copy it into the table below.
+- A **Suggested stack settings** line. Copy it into the table below.
 - A **Findings** list:
   - `UNSUPPORTED` or `FIX` lines must be sorted out first.
   - `KEEP` means keep what you have, for example an Elastic IP that's already attached.
+  - `NOTE` and `RECOMMEND` are worth a look but don't block anything.
   - `CHECK` means look before continuing. For example, "no SSH route from outside" means you'll need one of the ways in Step 4 to reach the instance.
 
 ### Option B: fill it in yourself ✍️
@@ -79,7 +82,7 @@ bash discover.sh --instance <INSTANCE_ID>  # checks one and suggests settings
 | Disk encryption key | EC2 → Volumes → KMS key. Fill this in only if it isn't `aws/ebs`. | `<KMS_KEY_ARN_OR_EMPTY>` |
 | Email for warnings | Optional | `<EMAIL_OR_EMPTY>` |
 | IP address | **Already has an Elastic IP?** Keep it and skip Step 3b. Otherwise choose **fixed** (about US$3.65/month) or **changing** (free, and the wake page shows it). | keep / fixed / changing |
-| Daily start time | Optional, for example `cron(0 9 ? * MON-FRI *)` for 9:00 on weekdays, plus a time zone such as `Asia/Kolkata` | `<CRON_OR_EMPTY>` `<TIME_ZONE>` |
+| Daily start time | Optional, for example `cron(0 9 ? * MON-FRI *)\|Asia/Kolkata` for 9:00 on weekdays in India. The `\|` and time zone are optional (UTC without them). | `<SCHEDULE_OR_EMPTY>` |
 | Long jobs | Work that must keep running after you disconnect, such as AI agents, builds or training | `<JOBS_OR_NONE>` |
 
 > [!NOTE]
@@ -106,7 +109,7 @@ This creates everything in one go from the file `src/ec2-idle-stack.yaml`: the w
 1. Open **CloudFormation → Create stack → With new resources**.
 2. Choose **Upload a template file** and pick `ec2-idle-stack.yaml`. Download it first from [src/ec2-idle-stack.yaml](https://github.com/manojvermamv/ec2-idle-stop-wake/blob/main/src/ec2-idle-stack.yaml) (**Download raw file**).
 3. Name the stack `ec2-idle`.
-4. Fill in your values from Step 0. Only **InstanceId** and **WakePin** (your PIN) are required.
+4. Fill in your values from Step 0. The form has two groups: **Basic** (instance, PIN and email) and **Advanced** (everything optional). Only **InstanceId** and **WakePin** (your PIN) are required.
 5. Tick the box that acknowledges IAM resources, then choose **Submit**.
 6. Wait for the status **CREATE_COMPLETE**, which takes about 2 minutes.
 
@@ -121,7 +124,7 @@ aws cloudformation deploy --stack-name ec2-idle --template-file ec2-idle-stack.y
   InstanceId=<INSTANCE_ID> WakePin=<PIN> SshUser=<SSH_USER> \
   InstanceRoleName=<ROLE_NAME_OR_EMPTY> \
   NotificationEmail=<EMAIL_OR_EMPTY> \
-  WorkHoursStart='<CRON_OR_EMPTY>' ScheduleTimezone=<TIME_ZONE> \
+  WorkHoursStart='<SCHEDULE_OR_EMPTY>' \
   EbsKmsKeyArn=<KMS_KEY_ARN_OR_EMPTY>
 aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outputs' --output table
 ```
@@ -139,12 +142,8 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 | `SshUser` | `ubuntu` | Login name shown in the connect command. |
 | `EbsKmsKeyArn` | empty | Only needed if your disk uses your own encryption key. |
 | `NotificationEmail` | empty | Where the warning and stopped emails go. |
-| `WorkHoursStart`, `ScheduleTimezone` | empty, `UTC` | Optional daily start. [Schedule format](https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html#cron-based) |
-| `BackupAlarmHours` | `4` | Email you if the instance runs this many hours at low CPU without stopping. `0` turns it off. |
-| `BackupAlarmCpuPercent` | `3` | The CPU level that counts as "low". |
-| `BackupAlarmAction` | `notify` | `stop` also stops the instance, but it could interrupt a quiet editing session. |
-| `WakeDryRun` | `false` | `true` makes **Wake** only check permission, which is useful for testing. |
-| `WakeMaxConcurrency` | `0` | Optional limit on simultaneous wake requests. Keep `0` if your Lambda concurrency quota is 100 or less, which includes most new accounts (10). Above 100, `3` is a good cap. |
+| `WorkHoursStart` | empty | Optional daily start: a cron expression, then optionally `\|` and a time zone, for example `cron(0 9 ? * MON-FRI *)\|Asia/Kolkata`. Without a time zone it runs in UTC, and it follows daylight saving when you give a zone. [Cron format](https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html#cron-based) |
+| `BackupAlarmHours` | `0` (off) | Optional safety net. Set it to `4` to get an email if the instance runs 4 hours under 3% CPU without stopping, which could mean the idle timer broke. It needs `NotificationEmail`. A long quiet session, such as an open editor, can also trigger it. |
 
 </details>
 
@@ -155,6 +154,7 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 | **WakePageUrl** | Your wake page. Bookmark it on your computer and phone. |
 | **OneTapBookmark** | The same link ending in `#YOUR_PIN`. Replace `YOUR_PIN` with your PIN and bookmark that for **one-tap waking**. The part after `#` is never sent to AWS. |
 | **TerminalWakeCommand** | The one-line wake for any terminal. |
+| **AlertTopicArn** | Only if you entered an email. It's already inside **GuestInstallCommand**. |
 | **GuestInstallCommand** | You'll paste this in Step 4. |
 | **AttachRoleCommand** | Shown only if a new role was created. You'll use it in Step 3. |
 
@@ -162,7 +162,7 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 > If you entered an email, AWS sends a **Subscription Confirmation** email. Click **Confirm subscription** now, **before Step 4**, or the installer's test email and later warnings won't arrive.
 
 > [!NOTE]
-> **An email titled "ALARM" within about 20 minutes of this step is normal** if the instance was already sitting idle. The backup alarm looks back over the last few hours and sees no timer stopping the instance yet. It clears by itself once the timer is installed and the instance stops. So during your first test you'll get up to **four** emails: this alarm, the setup test email, one warning, and one "stopped" email.
+> **If you turned on the optional backup alarm** (`BackupAlarmHours` above 0), an "ALARM" email within about 20 minutes of this step is normal when the instance was already sitting idle. The alarm looks back over the last few hours and sees no timer stopping the instance yet. It clears by itself once the timer is installed and the instance stops. With the alarm off, which is the default, you won't get it.
 
 ---
 
@@ -193,7 +193,7 @@ aws ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].Publi
 **▶ Run in:** the instance · ✏️ **Changes the instance**
 
 > [!CAUTION]
-> **Run these commands ON THE EC2 INSTANCE, not on your own computer.** In Windows PowerShell, `bash install_guest.sh` either fails with *"Windows Subsystem for Linux has no installed distributions"* or now stops with *"run this ON THE EC2 INSTANCE"*. Nothing gets installed on the instance that way.
+> **Run these commands ON THE EC2 INSTANCE, not on your own computer.** In Windows PowerShell, `bash install_guest.sh` either fails with *"Windows Subsystem for Linux has no installed distributions"* or stops with *"run this ON THE EC2 INSTANCE"*. Either way, nothing gets installed on the instance.
 
 **First, open a terminal on the instance.** Use whichever of these works for you:
 
@@ -227,13 +227,21 @@ aws ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].Publi
 **You should see:**
 
 ```text
+Checking this host...
+Warn after 30 min, stop after 45 min.
 OK    Login session check works (1 remote session(s) now)
+OK    Session Manager check works (open: no)
+OK    Instance my-dev-box (i-0abc…) in ap-southeast-2 with role ec2-idle-GuestRole-…
 OK    Role can stop this instance (DryRunOperation)
-OK    Test email accepted by SNS. …   (only on the first install)
+OK    Test email accepted by SNS. Confirm the subscription email if you have not.
 All checks passed.
-Installed. Mode stop: warning at 30 idle minutes, stop at 45.
+
+Installed. Warning at 30 idle minutes, stop at 45.
 Emails: one warning (at most one per hour), then one 'stopped' email with your wake page link.
+Logs: sudo journalctl -u ec2-idle.service -b -n 30 --no-pager
 ```
+
+The test email line appears only on the first install or when the email topic changes. The instance shows as its ID, such as `i-0abc…`, unless you add `--name`.
 
 > [!WARNING]
 > If any line says **FAIL**, nothing was switched on. The line tells you what to fix. Fix it, then run the same command again.
@@ -274,8 +282,13 @@ By default, the instance stops 45 minutes after your last connection closes. If 
 | Option | Effect |
 |---|---|
 | `--warn 20 --stop 30` | Change the timings. The defaults are 30 and 45 minutes. |
-| `--dry-run` | Only log what would happen, never stop. |
-| `--uninstall` | Remove the timer. |
+| `--name my-dev-box` | A friendly name for the emails. |
+| `--probe /path` | The long-job check from above. `--probe none` removes it. |
+| `--test-email` | Send the setup test email again. |
+| `--uninstall` | Remove the timer but keep its settings. |
+| `--uninstall --purge` | Remove the timer and also delete its settings and saved state. |
+
+Anything you leave out (email topic, wake link, name, long-job check) is kept from the last install.
 
 </details>
 
@@ -288,30 +301,44 @@ By default, the instance stops 45 minutes after your last connection closes. If 
 | 🌐 **Wake page** | Bookmark **WakePageUrl**. | Tap **Wake**, then copy the connect command it shows. If SSH from outside is blocked, connect with the console's **Connect** button instead. |
 | ⌨️ **Terminal** | None. Works anywhere `curl` exists, including Windows 10+. | Run the **TerminalWakeCommand**, then the `ssh:` line it prints. |
 | 📌 **Fixed IP** | Add a normal SSH entry with your fixed IP. | Wake first, then connect as usual. |
-| 🔁 **Automatic** (optional) | Add `ec2_up.py` to your SSH config. Needs Python, but no AWS tools. | Just connect. It wakes the instance for you. |
+| 🔁 **Automatic** (optional) | Add `ec2_up.py` to your SSH config. Needs Python, but no AWS tools. | Run your normal `ssh` command. It **waits while the instance wakes, then connects**, so there's nothing to retry. |
 
 <details>
 <summary>Automatic SSH setup (Mac, Linux, Windows)</summary>
+
+This needs your computer to be able to reach the instance's SSH port (see the ways in Step 4). If it can't, use the console's **Connect** button instead.
 
 1. Save your PIN on one line in `~/.ssh/ec2-wake.pin`. On Windows that's `%USERPROFILE%\.ssh\ec2-wake.pin`.
 2. Add this to `~/.ssh/config`. On Windows the file is `%USERPROFILE%\.ssh\config`.
 
 ```sshconfig
 Host ec2-workspace
-    HostName ec2-workspace
+    HostName <FIXED_IP_OR_ec2-workspace>
     HostKeyAlias ec2-workspace
     User <SSH_USER>
     IdentityFile ~/.ssh/<YOUR_PRIVATE_KEY>
     ConnectTimeout 360
     ServerAliveInterval 30
-    ProxyCommand python /absolute/path/to/ec2-idle-stop-wake/src/ec2_up.py <WAKE_URL> --pin-file ~/.ssh/ec2-wake.pin --proxy --port %p
+    ProxyCommand python /absolute/path/to/ec2-idle-stop-wake/src/ec2_up.py <WAKE_URL> %h %p --pin-file ~/.ssh/ec2-wake.pin
 ```
 
 3. Connect with `ssh ec2-workspace`. VS Code and Cursor can use the same name.
 
-- **Options:**
-  - `--no-wake` connects only if the instance is already running.
-  - `--private-ip` is for connecting over a VPN.
+**How it behaves:**
+- **Already running:** with a **fixed IP**, put it in `HostName`. The helper tries it for up to 3 seconds and connects straight away without calling the wake page.
+- **Stopped:** it asks the wake page to start the instance and wait (about one request), then connects to the IP the page reports. Your original `ssh` request carries on by itself.
+- **Changing IP:** keep a made-up name such as `ec2-workspace` in `HostName`. It can't be reached, so the helper skips straight to the wake page for the current IP.
+- **Wrong PIN or locked page:** `ssh` stops with the message, for example `ec2-up: Too many wrong PIN tries. Try again in 15 minutes.`
+- **Keep `ConnectTimeout` above the wake time.** 360 is fine, so ssh doesn't give up first.
+
+**Options** (add them to the `ProxyCommand` line):
+- `--no-wake` connects only if the instance is already running.
+- `--private-ip` is for connecting over a VPN.
+- `--timeout 600` waits longer than the default 300 seconds.
+
+**To try it by hand** (not in the config), add `--check`: it wakes the instance and prints the address, without relaying SSH.
+
+**Good to know**
 - **First connection:** SSH asks you to trust the server. To compare its fingerprint, run `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the instance.
 - **On Windows:**
   - Use forward slashes in paths (`C:/Users/you/...`).
@@ -324,7 +351,7 @@ Host ec2-workspace
 
 ## Step 6: Test it once
 
-Follow the short live test in [TESTING.md](TESTING.md#-level-6-live-acceptance-cycle). It takes about 5 minutes: the instance stops, you wake it, and you check your files.
+Follow the short live test in [TESTING.md](TESTING.md#-level-5-live-acceptance-cycle). It takes about 5 minutes: the instance stops, you wake it, and you check your files.
 
 ---
 

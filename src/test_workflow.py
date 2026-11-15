@@ -16,7 +16,7 @@ import textwrap
 import threading
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import ec2_idle
 import ec2_up
@@ -39,7 +39,7 @@ class IdleTests(Case):
     def setUp(self):
         folder = self.enter(tempfile.TemporaryDirectory())
         self.state = Path(folder, "state.json")
-        self.env = {"IDLE_MODE": "dry-run", "WARN_MINUTES": "1", "STOP_MINUTES": "2",
+        self.env = {"WARN_MINUTES": "1", "STOP_MINUTES": "2",
                     "WORK_PROBE": "", "SNS_TOPIC_ARN": "arn:aws:sns:test-region:1:topic",
                     "WAKE_PAGE_URL": "https://wake.example/", "INSTANCE_NAME": "dev-box"}
         self.activity = self.enter(patch.object(ec2_idle, "busy_reason", return_value=None))
@@ -57,16 +57,15 @@ class IdleTests(Case):
         ec2_idle.watch(ec2_idle.load_config(self.env), self.state)
         return json.loads(self.state.read_text())
 
-    def test_observed_idle_warns_once_then_simulates_stop(self):
+    def test_observed_idle_warns_once_then_stops_once(self):
         self.assertEqual(self.check(1000)["since"], 1000)
         self.assertEqual(self.check(1060)["warned"], 1060)
         self.assertEqual(self.check(1120)["stop_requested"], 1120)
         self.check(1180)
-        self.assertEqual(self.output.getvalue().count("Would publish warning"), 1)
-        self.assertEqual(self.output.getvalue().count("Would call EC2 StopInstances"), 1)
-        self.publish.assert_not_called()
-        self.stop.assert_not_called()
-        self.context.assert_not_called()
+        self.assertEqual(self.output.getvalue().count("Warning email accepted"), 1)
+        self.assertEqual(self.output.getvalue().count("Requested EC2 StopInstances"), 1)
+        self.stop.assert_called_once()
+        self.assertEqual(self.publish.call_count, 2)    # one warning, one "stopped"
 
     def test_busy_cancels_warning_and_resets_idle(self):
         self.check(1000)
@@ -75,7 +74,7 @@ class IdleTests(Case):
         self.assertEqual(self.check(1119), {})
         self.activity.return_value = None
         self.assertEqual(self.check(1120)["since"], 1120)
-        self.assertNotIn("Would call EC2 StopInstances", self.output.getvalue())
+        self.stop.assert_not_called()
 
     def test_gap_and_probe_failure_reset_idle(self):
         self.check(1000)
@@ -93,8 +92,7 @@ class IdleTests(Case):
         self.assertEqual(self.check(1120), {})
         self.stop.assert_not_called()
 
-    def test_stop_mode_publishes_before_stop(self):
-        self.env["IDLE_MODE"] = "stop"
+    def test_publishes_the_warning_before_the_stop(self):
         calls = Mock()
         calls.attach_mock(self.publish, "publish")
         calls.attach_mock(self.stop, "stop")
@@ -112,7 +110,6 @@ class IdleTests(Case):
             self.assertTrue(text.isascii() and len(text) < 100)
 
     def test_one_warning_per_hour_even_across_idle_cycles(self):
-        self.env["IDLE_MODE"] = "stop"
         self.check(1000)
         self.check(1060)                       # warning email
         self.activity.return_value = "remote login session"
@@ -133,7 +130,6 @@ class IdleTests(Case):
         self.assertEqual(len(warnings), 2)
 
     def test_stopped_email_is_sent_once_and_never_blocks_the_stop(self):
-        self.env["IDLE_MODE"] = "stop"
         for now in (1000, 1060):
             self.check(now)
         self.publish.side_effect = RuntimeError("SNS down")
@@ -147,7 +143,6 @@ class IdleTests(Case):
         self.assertEqual(len(stopped), 1)
 
     def test_delayed_email_preserves_full_warning_window(self):
-        self.env["IDLE_MODE"] = "stop"
         self.check(1000)
         self.publish.side_effect = RuntimeError("SNS error")
         with self.assertRaisesRegex(RuntimeError, "SNS error"):
@@ -159,7 +154,7 @@ class IdleTests(Case):
         self.assertEqual(self.check(1180)["stop_requested"], 1180)
 
     def test_broken_email_cannot_block_the_stop_forever(self):
-        self.env.update(IDLE_MODE="stop", WARN_RETRIES="2")
+        self.env.update(WARN_RETRIES="2")
         self.check(1000)
         self.publish.side_effect = RuntimeError("topic deleted")
         with self.assertRaises(RuntimeError):
@@ -169,14 +164,13 @@ class IdleTests(Case):
         self.stop.assert_called_once()
 
     def test_without_topic_stops_without_email(self):
-        self.env.update(IDLE_MODE="stop", SNS_TOPIC_ARN="")
+        self.env.update(SNS_TOPIC_ARN="")
         for now in (1000, 1060, 1120):
             self.check(now)
         self.publish.assert_not_called()
         self.stop.assert_called_once()
 
     def test_stop_is_retried_if_the_instance_keeps_running(self):
-        self.env["IDLE_MODE"] = "stop"
         for now in (1000, 1060, 1120):
             self.check(now)
         for now in range(1180, 1720, 60):
@@ -185,17 +179,17 @@ class IdleTests(Case):
         self.check(1720)
         self.assertEqual(self.stop.call_count, 2)
 
-    def test_mode_change_restarts_the_idle_clock(self):
-        self.check(1000)
-        self.env["IDLE_MODE"] = "stop"
-        self.assertEqual(self.check(1060)["since"], 1060)
-
     def test_invalid_config_is_rejected(self):
-        for change in ({"IDLE_MODE": "maybe"}, {"WARN_MINUTES": "5", "STOP_MINUTES": "5"},
+        for change in ({"WARN_MINUTES": "5", "STOP_MINUTES": "5"},
                        {"SNS_TOPIC_ARN": "topic"}, {"WARN_RETRIES": "0"},
                        {"WAKE_PAGE_URL": "http://insecure.example/"}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 ec2_idle.load_config({**self.env, **change})
+
+    def test_an_old_dry_run_settings_file_is_refused_not_turned_into_a_real_stop(self):
+        with self.assertRaisesRegex(ValueError, "Dry-run mode was removed"):
+            ec2_idle.load_config({**self.env, "IDLE_MODE": "dry-run"})
+        self.assertIsNotNone(ec2_idle.load_config({**self.env, "IDLE_MODE": "stop"}))   # the old stop setting is ignored
 
 
 class ActivityTests(Case):
@@ -328,7 +322,7 @@ class CheckTests(Case):
         self.enter(patch.object(ec2_idle, "ssm_session", return_value=False))
         self.enter(patch.object(ec2_idle, "instance_context", return_value={
             "instance_id": "i-test", "region": "test-region", "role": "test-role"}))
-        self.cfg = ec2_idle.load_config({"IDLE_MODE": "stop"})
+        self.cfg = ec2_idle.load_config({})
 
     def test_passes_when_role_can_stop(self):
         with patch.object(ec2_idle, "remote_sessions", return_value=1), \
@@ -349,7 +343,7 @@ class CheckTests(Case):
 
 class WakeClientTests(Case):
     def setUp(self):
-        self.args = SimpleNamespace(url="https://wake.example", pin="k", timeout=300,
+        self.args = SimpleNamespace(url="https://wake.example", host=None, pin="k", timeout=300,
                                     no_wake=False, port=22, private_ip=False)
         self.enter(patch.object(ec2_up.time, "sleep"))
         self.enter(contextlib.redirect_stderr(io.StringIO()))
@@ -364,14 +358,64 @@ class WakeClientTests(Case):
                              side_effect=[ConnectionRefusedError, conn]) as connect:
             self.assertEqual(ec2_up.wait_for_ssh(self.args), ("192.0.2.10", conn))
         self.assertEqual({c.args[1] for c in call.call_args_list}, {"wake"})
+        self.assertTrue(all(c.args[2] > 0 for c in call.call_args_list))   # the page does the waiting
         self.assertEqual(connect.call_count, 2)
+
+    def test_running_instance_at_a_fixed_address_never_calls_the_wake_page(self):
+        self.args.host = "203.0.113.5"
+        conn = Mock()
+        with patch.object(ec2_up, "call") as call, \
+                patch.object(ec2_up.socket, "create_connection", return_value=conn) as connect:
+            self.assertEqual(ec2_up.wait_for_ssh(self.args), ("203.0.113.5", conn))
+        call.assert_not_called()
+        self.assertEqual(connect.call_args.args[0], ("203.0.113.5", 22))
+        self.assertEqual(connect.call_args.kwargs["timeout"], ec2_up.FAST_TIMEOUT)
+
+    def test_stopped_instance_falls_back_to_the_wake_page_and_uses_its_ip(self):
+        self.args.host = "203.0.113.5"
+        conn = Mock()
+        with patch.object(ec2_up, "call", return_value=(
+                200, {"state": "running", "publicIp": "192.0.2.10"})) as call, \
+                patch.object(ec2_up.socket, "create_connection",
+                             side_effect=[OSError("timed out"), conn]) as connect:
+            self.assertEqual(ec2_up.wait_for_ssh(self.args), ("192.0.2.10", conn))
+        call.assert_called_once()
+        self.assertEqual([c.args[0] for c in connect.call_args_list],
+                         [("203.0.113.5", 22), ("192.0.2.10", 22)])
+
+    def test_gives_up_with_the_last_state_after_the_timeout(self):
+        self.args.timeout = 12
+        clock = self.enter(patch.object(ec2_up.time, "monotonic"))
+        clock.side_effect = itertools.count(0, 4)
+        with patch.object(ec2_up, "call", return_value=(202, {"state": "pending"})), \
+                self.assertRaisesRegex(RuntimeError, "not reachable after 12 seconds.*state pending"):
+            ec2_up.wait_for_ssh(self.args)
+
+    def test_ended_instance_stops_waiting(self):
+        with patch.object(ec2_up, "call", return_value=(409, {"state": "terminated"})), \
+                self.assertRaisesRegex(RuntimeError, "terminated"):
+            ec2_up.wait_for_ssh(self.args)
 
     def test_no_wake_only_reads_status(self):
         self.args.no_wake = True
         with patch.object(ec2_up, "call", return_value=(200, {"state": "stopped"})) as call, \
                 self.assertRaisesRegex(RuntimeError, "no-wake"):
             ec2_up.wait_for_ssh(self.args)
-        call.assert_called_once_with(self.args, "status")
+        call.assert_called_once_with(self.args, "status", 0)
+
+    def test_command_line_wiring(self):
+        pin_file = Path(self.enter(tempfile.TemporaryDirectory()), "pin")
+        pin_file.write_text("4821\n", encoding="utf-8")
+        out = self.enter(contextlib.redirect_stdout(io.StringIO()))
+        with patch.object(ec2_up, "wait_for_ssh", return_value=("192.0.2.10", MagicMock())) as waiting:
+            ec2_up.main(["https://wake.example", "203.0.113.5", "2222", "--pin-file", str(pin_file),
+                         "--check"])
+        args = waiting.call_args.args[0]
+        self.assertEqual((args.pin, args.host, args.port), ("4821", "203.0.113.5", 2222))
+        self.assertIn("192.0.2.10:2222", out.getvalue())
+        with patch.dict(os.environ, {"EC2_WAKE_PIN": ""}), self.assertRaises(SystemExit):
+            self.enter(contextlib.redirect_stderr(io.StringIO()))
+            ec2_up.main(["https://wake.example"])
 
     def test_wrong_pin_and_lock_messages_are_reported(self):
         for code, message in ((403, "Wrong PIN"), (429, "Too many wrong PIN tries")):
@@ -470,7 +514,7 @@ class LambdaTests(Case):
         }):
             spec.loader.exec_module(self.module)
         self.enter(patch.dict(os.environ, {
-            "INSTANCE_ID": "i-test", "DRY_RUN": "false", "SSH_USER": "ubuntu",
+            "INSTANCE_ID": "i-test", "SSH_USER": "ubuntu",
             "WAKE_PIN": self.PIN}))
         self.enter(contextlib.redirect_stdout(io.StringIO()))
 
@@ -584,11 +628,9 @@ class LambdaTests(Case):
         self.assertEqual((status, data["state"]), (202, "pending"))
         self.ec2.start_instances.assert_called_once_with(InstanceIds=["i-test"])
 
-    def test_wake_with_header_key_and_base64_body(self):
+    def test_a_running_instance_is_never_started_again(self):
         self.state("running", "192.0.2.10")
-        body = base64.b64encode(json.dumps({"action": "wake"}).encode()).decode()
-        status, data = self.post({}, body=body, isBase64Encoded=True,
-                                 headers={"X-Wake-Key": self.PIN})
+        status, data = self.post({"action": "wake", "pin": self.PIN})
         self.assertEqual((status, data["publicIp"]), (200, "192.0.2.10"))
         self.ec2.start_instances.assert_not_called()
 
@@ -602,14 +644,6 @@ class LambdaTests(Case):
         self.assertIn("state changed during start, retrying",
                       [step["event"] for step in data["progress"]])
 
-    def test_dry_run_checks_permission_only(self):
-        os.environ["DRY_RUN"] = "true"
-        self.state("stopped")
-        self.ec2.start_instances.side_effect = self.error("DryRunOperation")
-        status, data = self.post({"action": "wake", "pin": self.PIN})
-        self.assertEqual((status, data["dryRun"]), (200, True))
-        self.ec2.start_instances.assert_called_once_with(InstanceIds=["i-test"], DryRun=True)
-
     def lock_on(self):
         os.environ["LOCK_TABLE"] = "locks"
         self.state("stopped")
@@ -620,12 +654,18 @@ class LambdaTests(Case):
     def wrong(self):
         return self.post({"action": "status", "pin": "0000"})
 
-    def test_pin_aliases_and_one_tap_page(self):
+    def test_only_the_pin_field_is_accepted(self):
         self.state("running", "192.0.2.10")
+        self.assertEqual(self.post({"action": "status", "pin": self.PIN})[0], 200)
         for payload, extra in (({"action": "status", "key": self.PIN}, {}),
                                ({"action": "status"}, {"headers": {"x-wake-pin": self.PIN}}),
                                ({"action": "status"}, {"headers": {"X-Wake-Key": self.PIN}})):
-            self.assertEqual(self.post(payload, **extra)[0], 200)
+            self.assertEqual(self.post(payload, **extra)[0], 403)
+        encoded = base64.b64encode(json.dumps({"action": "status", "pin": self.PIN}).encode()).decode()
+        status, data = self.post({}, body=encoded, isBase64Encoded=True)
+        self.assertEqual((status, data["error"]), (400, "Send a JSON or form body"))
+
+    def test_page_has_a_pin_field_and_one_tap_bookmark(self):
         page = self.get("text/html")["body"]
         self.assertIn('id="pin"', page)
         self.assertIn("location.hash", page)
@@ -684,6 +724,15 @@ class LambdaTests(Case):
 
 
 class TemplateTests(Case):
+    def test_the_stack_form_stays_small(self):
+        template = (HERE / "ec2-idle-stack.yaml").read_text(encoding="utf-8")
+        section = template.split("\nParameters:\n", 1)[1].split("\nConditions:\n", 1)[0]
+        names = [line.strip().rstrip(":") for line in section.splitlines()
+                 if line.startswith("  ") and not line.startswith("   ") and line.rstrip().endswith(":")]
+        self.assertEqual(sorted(names), sorted([
+            "InstanceId", "WakePin", "NotificationEmail",
+            "WorkHoursStart", "BackupAlarmHours", "InstanceRoleName", "EbsKmsKeyArn", "SshUser"]))
+
     def test_template_embeds_the_current_lambda_code(self):
         lines = (HERE / "ec2-idle-stack.yaml").read_text(encoding="utf-8").splitlines()
         start = next(i for i, line in enumerate(lines) if line.strip() == "ZipFile: |") + 1

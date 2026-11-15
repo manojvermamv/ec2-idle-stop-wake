@@ -330,8 +330,10 @@ def load(path):
 
 
 def load_config(env):
+    if env.get("IDLE_MODE") == "dry-run":   # an old settings file: refuse rather than start stopping for real
+        raise ValueError("Dry-run mode was removed. Delete the IDLE_MODE line from /etc/ec2-idle.conf, "
+                         "or run install_guest.sh --uninstall --purge.")
     cfg = SimpleNamespace(
-        mode=env.get("IDLE_MODE", "dry-run"),
         warn=int(env.get("WARN_MINUTES", "30")) * 60,
         stop=int(env.get("STOP_MINUTES", "45")) * 60,
         retries=int(env.get("WARN_RETRIES", "3")),
@@ -340,12 +342,9 @@ def load_config(env):
         probe=env.get("WORK_PROBE", "").strip(),
         wake_url=env.get("WAKE_PAGE_URL", "").strip(),
         name=env.get("INSTANCE_NAME", "").strip(),
-        sessions=env.get("EC2_IDLE_IGNORE_SESSIONS") != "1",
     )
-    if (cfg.mode not in {"dry-run", "stop"} or not 0 < cfg.warn < cfg.stop or cfg.retries < 1
-            or cfg.email_gap < 0):
-        raise ValueError("Check IDLE_MODE, WARN_MINUTES, STOP_MINUTES, WARN_RETRIES and "
-                         "WARN_EMAIL_GAP_MINUTES")
+    if not 0 < cfg.warn < cfg.stop or cfg.retries < 1 or cfg.email_gap < 0:
+        raise ValueError("Check WARN_MINUTES, STOP_MINUTES, WARN_RETRIES and WARN_EMAIL_GAP_MINUTES")
     if cfg.topic and not cfg.topic.startswith("arn:"):
         raise ValueError("SNS_TOPIC_ARN must be an SNS topic ARN or empty")
     if cfg.wake_url and not cfg.wake_url.startswith("https://"):
@@ -359,9 +358,6 @@ def send_warning(cfg, ctx, state, emails, emails_path, state_path):
     if last is not None and time.time() - last < cfg.email_gap:
         print(f"Warning email skipped: one was sent {(time.time() - last) / 60:.0f} minutes ago "
               f"(limit: one per {cfg.email_gap // 60} minutes).")
-        return
-    if cfg.mode != "stop":
-        print(f"Dry run. Would publish warning. {warning_email(cfg, ctx or {'region': '-'})[0]}")
         return
     if not cfg.topic:
         print("No SNS topic configured. Continuing without a warning email.")
@@ -400,31 +396,27 @@ def watch(cfg, state_path):
 
     def activity():
         try:
-            return busy_reason(cfg.probe, cfg.sessions)
+            return busy_reason(cfg.probe)
         except (OSError, subprocess.SubprocessError, RuntimeError):
             record(state_path, {})
             raise
 
     busy = activity()
-    previous = load(state_path)
-    if previous.get("mode") != cfg.mode:
-        previous = {}
     now = time.monotonic()
-    state = advance(previous, now, busy)
+    state = advance(load(state_path), now, busy)
     if busy:
         record(state_path, state)
         print(f"Busy ({busy}). Idle clock reset.")
         return
 
-    state["mode"] = cfg.mode
     elapsed = now - state["since"]
     record(state_path, state)
-    print(f"Idle for {elapsed / 60:.1f} minutes ({cfg.mode}).", flush=True)
+    print(f"Idle for {elapsed / 60:.1f} minutes.", flush=True)
 
     ctx = None
     if elapsed >= cfg.warn and state.get("warned") is None:
         emails = load(emails_path)
-        if cfg.mode == "stop" and cfg.topic:
+        if cfg.topic:
             ctx = instance_context()
         send_warning(cfg, ctx, state, emails, emails_path, state_path)
         state["warned"] = time.monotonic()
@@ -435,19 +427,16 @@ def watch(cfg, state_path):
             or now - state["warned"] < cfg.stop - cfg.warn
             or (requested is not None and now - requested < STOP_RETRY_SECONDS)):
         return
-    if cfg.mode == "stop" and ctx is None:
+    if ctx is None:
         ctx = instance_context()
     busy = activity()
     if busy:
         record(state_path, {})
         print(f"Busy ({busy}) on final check. Idle clock reset.")
         return
-    if cfg.mode == "stop":
-        stop_instance(ctx)
-        print("Requested EC2 StopInstances.")
-        send_stopped(cfg, ctx, load(emails_path), emails_path)
-    else:
-        print("Dry run. Would call EC2 StopInstances and send the stopped email.")
+    stop_instance(ctx)
+    print("Requested EC2 StopInstances.")
+    send_stopped(cfg, ctx, load(emails_path), emails_path)
     state["stop_requested"] = now
     record(state_path, state)
 
@@ -463,7 +452,7 @@ def check(cfg, expect_session=False, test_email=False):
         problems.append(text)
         print(f"FAIL  {text}")
 
-    print(f"Mode {cfg.mode}. Warn after {cfg.warn // 60} min, stop after {cfg.stop // 60} min.")
+    print(f"Warn after {cfg.warn // 60} min, stop after {cfg.stop // 60} min.")
     try:
         sessions = remote_sessions()
         ok(f"Login session check works ({sessions} remote session(s) now)")

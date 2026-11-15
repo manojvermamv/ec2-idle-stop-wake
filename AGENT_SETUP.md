@@ -83,9 +83,9 @@ Ask only what discovery can't answer, all in **one message**, and show the defau
 | 2 | Which instance? Skip this if discovery finds only one. | – |
 | 3 | Email for warnings? | None |
 | 4 | Fixed IP (about US$3.65/month) or changing IP (free)? **Skip this if discovery shows an Elastic IP is already attached.** Keep it, and never allocate a second one. | Changing, or keep the existing one |
-| 5 | Start automatically on work days? If yes, which days, what time and which time zone? | Off |
+| 5 | Start automatically on work days? If yes, which days, what time and which time zone? (It becomes one setting, for example `cron(0 9 ? * MON-FRI *)\|Asia/Kolkata`.) | Off |
 | 6 | Anything that must keep running after you disconnect (agents, builds, training)? | None |
-| 7 | Backup alarm: email only, or also stop? | Email only |
+| 7 | Optional backup alarm that emails you if the idle timer ever stops working (free, off by default)? If yes: how many quiet hours (try 4)? It emails only, and needs an email address. | Off |
 | 8 | How will you connect: wake page, terminal, or automatic SSH? **How do you get a shell on the instance today?** (SSH, EC2 Instance Connect, an endpoint, Session Manager.) The installer must run there. | Wake page and terminal |
 | 9 | Idle times? | Warn at 30, stop at 45 |
 
@@ -97,10 +97,12 @@ Ask only what discovery can't answer, all in **one message**, and show the defau
 
 ```bash
 git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git && cd ec2-idle-stop-wake/src
-bash discover.sh --region <REGION>                                          # instances and existing stack
-bash discover.sh --region <REGION> --instance <INSTANCE_ID>                 # checks and suggested settings
-bash discover.sh --region <REGION> --instance <INSTANCE_ID> --include-plan  # only with G2
+bash discover.sh --region <REGION>                           # lists the instances
+bash discover.sh --region <REGION> --instance <INSTANCE_ID>  # the 5 setup-blocking checks
+aws freetier get-account-plan-state --region us-east-1       # Free or Paid plan, only with G2
 ```
+
+`discover.sh` checks: EBS root disk, not Windows or Spot, instance metadata on, existing role, and the Elastic IP and SSH route. It does not check the existing stack or the disk's encryption key. Use the API calls below for those.
 
 <details>
 <summary>The same checks as individual API calls (for MCP servers or SDKs)</summary>
@@ -116,7 +118,6 @@ bash discover.sh --region <REGION> --instance <INSTANCE_ID> --include-plan  # on
 | Instance Connect route | `ec2:DescribeManagedPrefixLists` (name `com.amazonaws.<REGION>.ec2-instance-connect`) and `ec2:DescribeInstanceConnectEndpoints` |
 | Windows | `Platform` = `windows` in `ec2:DescribeInstances` means `UNSUPPORTED` |
 | Disk encryption | `ec2:DescribeVolumes` plus `kms:DescribeKey`. A `CUSTOMER` key means set `EbsKmsKeyArn`. |
-| Lambda limit | `lambda:GetAccountSettings`. A limit of 100 or less means `WakeMaxConcurrency=0`. Above 100, `3` is a good optional cap. |
 | Existing stack | `cloudformation:DescribeStacks` |
 | Plan, G2 only | `freetier:GetAccountPlanState` |
 
@@ -131,7 +132,7 @@ bash discover.sh --region <REGION> --instance <INSTANCE_ID> --include-plan  # on
 | `KEEP` | Keep it as is, for example an Elastic IP that's already attached. Skip SETUP Step 3b. |
 | `NOTE` | Show it in the plan, for example "your existing role `<ROLE>` will get the stack's policy added". |
 | `FIX` | Explain the fix. Making the change itself needs G4. |
-| `SET` | Use the given value, for example `EbsKmsKeyArn`. |
+| `SET` | From your own API check of the disk's encryption key (`discover.sh` doesn't print it). Use the value, for example `EbsKmsKeyArn`. |
 | `RECOMMEND` | Mention it once. Don't change security groups unless asked. |
 | Stack already exists | Ask: update it, or use a new stack name? |
 
@@ -147,10 +148,10 @@ Region:   <REGION>            Account: <ACCOUNT_ID>
 Instance: <INSTANCE_ID> (<NAME>, <OS>, <TYPE>)
 Stack:    ec2-idle (new | update)
 
-Creates:  wake page (Lambda + link), permissions, 14-day logs
+Creates:  wake page (Lambda + link), a small wrong-PIN counter table, permissions, 14-day logs
           warning + stopped emails, subscription [if email]
-          work-hours start <CRON> <TIME_ZONE>   [if schedule]
-          backup alarm (<email | stop>)
+          work-hours start <CRON>|<TIME_ZONE>   [if schedule]
+          backup alarm, email only              [only if the user turns it on]
           new instance role                     [if none exists]
 Modifies: existing role <ROLE> gets the stack policy added  [if a role exists]
 Settings: <exact parameter list; show WakePin as <hidden>>
@@ -158,9 +159,9 @@ Then ask separately: attach role? fixed IP (or: keep existing EIP <IP>)?
           temporary SSH access (if no route)? install the timer?
 Cost:     about US$0 for the AWS pieces; compute only while running;
           new fixed IP about US$3.65/month if chosen (README, Costs)
-Expect:   an "ALARM" email within about 20 minutes of deploy if the instance is already idle.
-          This is normal until the timer is installed. A first test cycle then gives
-          up to 4 emails: alarm, setup test, one warning, one "stopped".
+Expect:   a first test cycle sends 3 emails: setup test, one warning, one "stopped".
+          Only if the optional backup alarm is on: an extra "ALARM" email within about
+          20 minutes of deploy when the instance is already idle. That is normal.
 ```
 
 ---
@@ -171,8 +172,8 @@ Expect:   an "ALARM" email within about 20 minutes of deploy if the instance is 
 |---|---|---|---|
 | 4.1 | – | Ask the user for a PIN of 4 to 64 letters and numbers (SETUP Step 1). They may type it into the stack form themselves instead. | A PIN they remember |
 | 4.2 | G3 | Deploy the stack with the planned settings: with the CLI, use SETUP Step 2's command option; with an MCP server or SDK, see the recipe below. | `CREATE_COMPLETE` |
-| 4.3 | – | Read the outputs: `WakePageUrl`, `TerminalWakeCommand`, `AlertTopicArn`, `GuestInstallCommand`, `AttachRoleCommand`. | An outputs table |
-| 4.4 | – | Ask the user to confirm the subscription email **now, before 4.7**, and wait for their "done". Mention that an "ALARM" email may also arrive (see the plan). | The user confirms |
+| 4.3 | – | Read the outputs: `WakePageUrl`, `OneTapBookmark`, `TerminalWakeCommand`, `AlertTopicArn`, `GuestInstallCommand`, `AttachRoleCommand`. | An outputs table |
+| 4.4 | – | Ask the user to confirm the subscription email **now, before 4.7**, and wait for their "done". If they turned on the backup alarm, mention that an "ALARM" email may also arrive (see the plan). | The user confirms |
 | 4.5 | G4 | Attach the role, if `AttachRoleCommand` exists: `ec2:AssociateIamInstanceProfile`. Then **wait about 60 seconds** for it to take effect. | `"State": "associating"` |
 | 4.6 | G4 | Set up a new fixed IP, if chosen (SETUP Step 3b). Skip if one is already attached. | The fixed IP |
 | 4.7 | G4 | **On the instance**, never on the user's computer: `git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git`, then `cd ec2-idle-stop-wake/src`, then `GuestInstallCommand` (it already includes `--topic` and `--wake-url`), adding `--probe` and `--name` if wanted. If you have no shell on the instance, give the user these exact commands for their terminal (SSH, Instance Connect or Session Manager). | `All checks passed.` then `Installed.` |
@@ -183,7 +184,7 @@ Expect:   an "ALARM" email within about 20 minutes of deploy if the instance is 
 <details>
 <summary><b>Deploy recipe for MCP servers and SDKs</b> (no <code>aws cloudformation deploy</code>)</summary>
 
-1. **Template.** Use the exact committed bytes of `src/ec2-idle-stack.yaml`, with LF line endings. The repository's `.gitattributes` keeps it LF even on Windows. It's about 31 KB, under the 51,200-byte limit for `TemplateBody`, so no S3 bucket is needed. If your tool can't read local files, embed the text in the call **as a raw string** (in Python, `r'''…'''`), because the template contains backslashes that a normal string would change. Check the length (about 31,000 bytes, no `\r` characters) before sending.
+1. **Template.** Use the exact committed bytes of `src/ec2-idle-stack.yaml`, with LF line endings. The repository's `.gitattributes` keeps it LF even on Windows. It's about 35 KB, under the 51,200-byte limit for `TemplateBody`, so no S3 bucket is needed. If your tool can't read local files, embed the text in the call **as a raw string** (in Python, `r'''…'''`), because the template contains backslashes that a normal string would change. Check the length (it should match the file's size in the repository, with no `\r` characters) before sending.
 2. **Create.** `cloudformation:CreateStack` with:
    - `StackName=ec2-idle`
    - `TemplateBody=<template>`
@@ -208,7 +209,7 @@ Expect:   an "ALARM" email within about 20 minutes of deploy if the instance is 
 | PIN works | – | The user runs `curl -d pin=<PIN> <WAKE_URL>` | A `state:` line |
 | Instance check | – | [TESTING Level 4](TESTING.md#-level-4-instance-check) | `All checks passed.` |
 | Timer is on | – | `systemctl list-timers ec2-idle.timer --no-pager` | Next run within 1 minute |
-| Live test | G5 | [TESTING Level 6](TESTING.md#-level-6-live-acceptance-cycle) | Email, stopped, woke, files intact |
+| Live test | G5 | [TESTING Level 5](TESTING.md#-level-5-live-acceptance-cycle) | Email, stopped, woke, files intact |
 
 ---
 
@@ -218,10 +219,10 @@ Finish with this. Show real values in chat only, never in repo files.
 
 ```text
 DONE: EC2 idle stop and wake
-Wake page:      <WAKE_URL>  (bookmark it; the key is in your password manager)
+Wake page:      <WAKE_URL>  (bookmark it; your PIN is in your password manager)
 Terminal wake:  curl -d pin=<PIN> -d action=wake <WAKE_URL>
 Auto-stop:      warn at <W> min, stop at <S> min; long-job check: <PATH | none>
-Schedule:       <CRON TIME_ZONE | off>     IP: <FIXED_IP | changes each start>
+Schedule:       <CRON|TIME_ZONE | off>     IP: <FIXED_IP | changes each start>
 Email:          <EMAIL | none> (confirmed: yes/no)
 Verified:       <checks that passed; anything skipped>
 Created:        stack ec2-idle (+ role, + fixed IP if any)

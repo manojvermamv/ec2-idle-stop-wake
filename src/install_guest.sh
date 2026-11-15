@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-time install of the idle watcher. Run it ON THE EC2 INSTANCE, from the src folder.
 #   bash install_guest.sh [--topic SNS_TOPIC_ARN] [--wake-url URL] [--name NAME]
-#                         [--warn 30] [--stop 45] [--probe /abs/path|none] [--test-email] [--dry-run]
+#                         [--warn 30] [--stop 45] [--probe /abs/path|none] [--test-email]
 #   bash install_guest.sh --uninstall [--purge]   (--purge also deletes the settings and saved state)
 # --topic, --wake-url  AlertTopicArn and WakePageUrl from the stack outputs (GuestInstallCommand).
 # --name     Friendly name for emails, for example ubuntu-cp.
@@ -11,7 +11,7 @@
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-topic="" wake_url="" name="" probe="" warn=30 stop=45 mode=stop uninstall=0 purge=0 force_test=0
+topic="" wake_url="" name="" probe="" warn=30 stop=45 uninstall=0 purge=0 force_test=0
 set_topic=0 set_wake=0 set_name=0 set_probe=0
 usage() { sed -n '2,10p' "$0"; exit "${1:-0}"; }
 while (($#)); do
@@ -23,7 +23,6 @@ while (($#)); do
         --warn) warn=${2:?--warn needs a value}; shift 2 ;;
         --stop) stop=${2:?--stop needs a value}; shift 2 ;;
         --test-email) force_test=1; shift ;;
-        --dry-run) mode=dry-run; shift ;;
         --uninstall) uninstall=1; shift ;;
         --purge) purge=1; shift ;;
         -h | --help) usage ;;
@@ -83,7 +82,7 @@ fi
 
 conf=$(mktemp)
 trap 'rm -f -- "$conf"' EXIT
-sed -e "s|^IDLE_MODE=.*|IDLE_MODE=$mode|" -e "s|^WARN_MINUTES=.*|WARN_MINUTES=$warn|" \
+sed -e "s|^WARN_MINUTES=.*|WARN_MINUTES=$warn|" \
     -e "s|^STOP_MINUTES=.*|STOP_MINUTES=$stop|" -e "s|^SNS_TOPIC_ARN=.*|SNS_TOPIC_ARN=$topic|" \
     -e "s|^WAKE_PAGE_URL=.*|WAKE_PAGE_URL=$wake_url|" -e "s|^INSTANCE_NAME=.*|INSTANCE_NAME=$name|" \
     -e "s|^WORK_PROBE=.*|WORK_PROBE=$probe|" ec2-idle.conf > "$conf"
@@ -106,16 +105,13 @@ fi
 echo "Checking this host..."
 if ! sudo bash -c 'set -a; . /etc/ec2-idle.conf; set +a; exec python3 -I -S /usr/local/sbin/ec2_idle.py "$@"' \
     _ "${check_args[@]}"; then
-    if [[ $mode == stop ]]; then
-        echo "The timer was NOT enabled. Fix the problems above and run this script again." >&2
-        exit 1
-    fi
-    echo "Continuing because --dry-run is set."
+    echo "The timer was NOT enabled. Fix the problems above and run this script again." >&2
+    exit 1
 fi
 
 sudo systemctl enable --now ec2-idle.timer
 sudo systemctl restart ec2-idle.timer
 echo
-echo "Installed. Mode $mode: warning at $warn idle minutes, stop at $stop."
+echo "Installed. Warning at $warn idle minutes, stop at $stop."
 echo "Emails: one warning (at most one per hour), then one 'stopped' email${wake_url:+ with your wake page link}."
 echo "Logs: sudo journalctl -u ec2-idle.service -b -n 30 --no-pager"

@@ -30,11 +30,11 @@ Your EC2 instance (a computer you rent from AWS) turns itself off when you stop 
 | | Feature | What it means for you |
 |---|---|---|
 | 💤 | **Stops by itself** | A tiny timer inside the instance checks every minute and stops it after 45 idle minutes. It's lightweight enough for the smallest instance and stays out of the way of heavy workloads. No other machine is involved. |
-| 🌐 | **Wake page** | A private link to open on any browser or phone. Type your PIN once (the browser remembers it), tap **Wake**, and it shows when the instance is ready and the command to connect. Or bookmark `link#PIN` to wake with **one tap**. |
+| 🌐 | **Wake page** | A private link to open on any browser or phone. Type your PIN (tick **Remember on this device** to type it only once), tap **Wake**, and it shows when the instance is ready and the command to connect. Or bookmark `link#PIN` to wake with **one tap**. |
 | ⌨️ | **Wake from a terminal or code** | One command wakes the instance, waits until it's ready, and prints the progress. Scripts and AI agents can use it too. |
 | ⏰ | **Work-hours start** (optional) | It starts on a timetable you choose, for example 9:00 on weekdays. |
 | 🛡️ | **Protects your work** | Open connections (SSH, VS Code, Cursor and others) keep it awake. You can also keep it awake for long jobs that run after you disconnect. |
-| 🧯 | **Safe by design** | Random internet traffic can't keep it awake, a broken email can't stop it from stopping, and a backup alarm tells you if anything goes wrong. |
+| 🧯 | **Safe by design** | Random internet traffic can't keep it awake, a broken email can't stop it from stopping, and an optional backup alarm can tell you if the timer ever stops working. |
 | 💾 | **Nothing is lost** | Stopping is like shutting a laptop lid. Your files, programs and settings stay on the disk. |
 
 This is what the terminal wake looks like:
@@ -43,6 +43,8 @@ This is what the terminal wake looks like:
 $ curl -d pin=<PIN> -d action=wake <WAKE_URL>
 state: running
 ready: yes
+public_ip: 3.25.10.20
+private_ip: 172.31.5.9
 ssh: ssh ubuntu@3.25.10.20
 progress:
     0s  stopped
@@ -62,7 +64,7 @@ Never more than these, so your inbox stays quiet:
 | **"… will stop in 15 minutes"** | After 30 minutes with no activity | **At most once per hour**, even if you come and go |
 | **"… has stopped"** | Right after it stops, with your **wake page link** and a ready-to-copy wake command | **Once per stop** |
 | **"Idle stop is set up"** | When you first install, or change the email topic | Once |
-| **AWS "ALARM"** (backup alarm) | After hours of quiet running, for example an editor left open. You may also get one about 20 minutes after first setup if the instance was already idle. That's normal. | Once per incident |
+| **AWS "ALARM"** (optional backup alarm, **off by default**) | Only if you turn it on: after hours of quiet running, for example an editor left open or a broken timer. | Once per incident |
 
 Email trouble never blocks the stop, so a broken email setup can't leave the instance running and costing money.
 
@@ -130,8 +132,8 @@ AWS charges **nothing extra for stopping and starting**. You pay the normal rate
 | ⏳ **Wind-down time** | About 45 minutes after you finish, roughly US$0.09 in the example below. |
 | 💾 **Disk storage** | All month, even while stopped. |
 | 🌍 **Fixed IP address** (optional) | About US$3.65/month. Without one, the address changes at each start and the wake page shows the new one. |
-| ✉️ **Email, wake page, schedule, alarm** | Expected US$0. Normal use fits inside the AWS free allowances. |
-| 🔢 **Wrong-PIN counter** (DynamoDB) | Well under US$0.01 a month. It's billed per request, and a few wakes a day are a few requests. |
+| ✉️ **Email, wake page, schedule, optional alarm** | Expected US$0. Normal use fits inside the AWS free allowances. |
+| 🔢 **Wrong-PIN counter** (DynamoDB) | Well under US$0.01 a month for normal use. It's billed per request, and each wake page request makes one tiny read. |
 
 <details>
 <summary><b>Price details and links</b></summary>
@@ -144,8 +146,8 @@ AWS charges **nothing extra for stopping and starting**. You pay the normal rate
 | SNS email | The first 1,000 emails each month are free. [SNS pricing](https://aws.amazon.com/sns/pricing/) |
 | Lambda wake page | The first 1 million requests and 400,000 GB-seconds each month are free. [Lambda pricing](https://aws.amazon.com/lambda/pricing/) |
 | EventBridge Scheduler | The first 14 million runs each month are free. [EventBridge pricing](https://aws.amazon.com/eventbridge/pricing/) |
-| CloudWatch alarm | The first 10 alarms are free. [CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/) |
-| DynamoDB (wrong-PIN counter) | On-demand, billed per request. A few requests a day cost well under US$0.01 a month. [DynamoDB pricing](https://aws.amazon.com/dynamodb/pricing/on-demand/) |
+| CloudWatch alarm (optional) | The first 10 alarms are free. [CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/) |
+| DynamoDB (wrong-PIN counter) | On-demand, billed per request. Each wake page request makes one tiny read, so normal use costs well under US$0.01 a month. [DynamoDB pricing](https://aws.amazon.com/dynamodb/pricing/on-demand/) |
 | CloudFormation | No charge. |
 
 </details>
@@ -171,14 +173,14 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 > - Long jobs you've marked as "keep awake".
 > - The 45-minute wind-down after each session.
 >
-> Run one [full test](TESTING.md#-level-6-live-acceptance-cycle) before relying on the savings.
+> Run one [full test](TESTING.md#-level-5-live-acceptance-cycle) before relying on the savings.
 
 ---
 
 ## 🔐 Is it safe?
 
 - 🔑 **The wake page needs your PIN.** You choose a short one (for example 4821). Even someone with both the link and the PIN can only *start* the instance. They can't log in, read files or stop it, and it turns itself off again when idle.
-- 🔒 **Wrong guesses lock the page.** 5 wrong PINs lock it for 15 minutes, so a short PIN can't be guessed. A tiny database table counts the tries (a few requests a month, well under a cent). If it can't, the page stays closed rather than open.
+- 🔒 **Wrong guesses lock the page.** 5 wrong PINs lock it for 15 minutes, so a short PIN can't be guessed. A tiny database table counts the tries (normal use costs well under a cent a month). If it can't, the page stays closed rather than open. The lock is shared by everyone, including you, so someone guessing wrong can lock you out for 15 minutes. You can still start the instance from the EC2 console.
 - 🤫 **Your PIN is hidden in the stack form and the stack's details.** It's kept in the wake page's own settings (a Lambda setting), which only people with access to your AWS account can read. They can already start and stop the instance anyway.
 - 🧩 **Each part has the smallest possible permission.** The wake page can only start this one instance, and the instance can only stop itself.
 - 🤖 **AI agents need your yes for every change.** Reading the docs gives them no permission. See the [agent rules](AGENT_SETUP.md#-step-0-rules-for-the-agent).
@@ -190,8 +192,8 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 
 | You need | Notes |
 |---|---|
-| 🖥️ An EC2 instance with an **EBS disk** | Most instances have one. Ubuntu 20.04+, Debian 11+ or Amazon Linux 2023. |
-| ☁️ Access to the **AWS console** | Its built-in terminal, **CloudShell**, does the AWS work, so you install nothing on your computer. |
+| 🖥️ An EC2 instance with an **EBS disk** | Most instances have one. It needs Linux with systemd and Python 3.8 or newer. Tested on Ubuntu 24.04. Ubuntu 20.04+, Debian 11+ and Amazon Linux 2023 should work but haven't been tested. |
+| ☁️ Access to the **AWS console** | Its built-in terminal, **CloudShell**, can do the AWS work, so you install nothing on your computer. On a brand-new account CloudShell may not open for up to two days. The setup guide has console steps for that. |
 | 🔐 A way to connect over **SSH** | The way you connect today is fine. |
 
 🚫 **Not supported:** Windows instances, instance-store disks, and one-time Spot Instances. None of these can be stopped and restarted.
@@ -230,13 +232,13 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 
 | File | Runs on | Purpose |
 |---|---|---|
-| [ec2-idle-stack.yaml](src/ec2-idle-stack.yaml) | ☁️ AWS CloudFormation | Wake page, permissions, email, optional schedule and backup alarm |
-| [discover.sh](src/discover.sh) | ☁️ AWS CloudShell | Read-only check of your account, with suggested settings |
+| [ec2-idle-stack.yaml](src/ec2-idle-stack.yaml) | ☁️ AWS CloudFormation | Wake page, permissions, email, optional schedule and optional backup alarm |
+| [discover.sh](src/discover.sh) | ☁️ AWS CloudShell | Read-only check of the 5 things that can block setup |
 | [install_guest.sh](src/install_guest.sh) | 🖥️ Your EC2 instance | One-time install, or uninstall, of the idle timer |
 | [ec2_idle.py](src/ec2_idle.py), [ec2-idle.service](src/ec2-idle.service), [ec2-idle.timer](src/ec2-idle.timer), [ec2-idle.conf](src/ec2-idle.conf) | 🖥️ Your EC2 instance | Idle timer program and settings |
 | [wake_ec2.py](src/wake_ec2.py) | ☁️ AWS Lambda | Wake page program (built into the stack file) |
-| [ec2_up.py](src/ec2_up.py) | 💻 Your computer, optional | Lets `ssh` wake the instance by itself |
-| [test_workflow.py](src/test_workflow.py), [verify_guest.sh](src/verify_guest.sh), [sync_template.py](src/sync_template.py) | 🧪 Anywhere | Tests and maintenance |
+| [ec2_up.py](src/ec2_up.py) | 💻 Your computer, optional | Your normal `ssh` waits while a stopped instance wakes, then connects |
+| [test_workflow.py](src/test_workflow.py), [sync_template.py](src/sync_template.py) | 🧪 Anywhere | Tests and maintenance |
 
 </details>
 

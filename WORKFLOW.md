@@ -19,7 +19,7 @@
 | Set up once, then forget it | One AWS stack file plus one installer run on the instance. |
 | Nothing runs on your computer | Waking runs in AWS. Stopping runs inside the instance. |
 | Never cut off real work | Only real connections and declared long jobs count, and it checks once more right before stopping. |
-| Never waste money silently | A broken email can't stop the shutdown, failed stops are retried, and a backup alarm watches. |
+| Never waste money silently | A broken email can't stop the shutdown, failed stops are retried, and an optional backup alarm can watch the timer. |
 | Usable from anywhere | Browser, phone, any terminal, code or AI agent, with no AWS login and nothing to install. |
 
 ---
@@ -32,7 +32,7 @@ flowchart TB
         URL["🌐 Wake page and API<br/>Lambda Function URL"]
         SCH["⏰ Work-hours start<br/>EventBridge Scheduler (optional)"]
         SNS["✉️ Warning and stopped emails<br/>SNS"]
-        CW["🧯 Backup alarm<br/>CloudWatch"]
+        CW["🧯 Backup alarm, optional<br/>CloudWatch"]
     end
     subgraph Box["🖥️ Your EC2 instance"]
         TIMER["⏱️ Timer, every minute"] --> PY["ec2_idle.py"]
@@ -47,10 +47,10 @@ flowchart TB
 | Piece | Lives in | Runs when | Allowed to |
 |---|---|---|---|
 | Idle timer (`ec2_idle.py`) | The instance | Every minute, starting 5 minutes after boot | Stop **its own** instance and send **its own** emails (one warning, one "stopped") |
-| Wake page (`wake_ec2.py`) | AWS Lambda | You open it, or call it with your PIN | Look up instances, and start **this** instance |
+| Wake page (`wake_ec2.py`) | AWS Lambda | You open it, or call it with your PIN | Look up instances, start **this** instance, and keep its small wrong-PIN counter |
 | Work-hours start | AWS EventBridge Scheduler | On your timetable | Start **this** instance |
-| Backup alarm | AWS CloudWatch | CPU stays low for hours while running | Email you (or, if you opt in, stop the instance) |
-| SSH helper (`ec2_up.py`) | Your computer, optional | You run `ssh` | Call the wake page, then connect |
+| Backup alarm (optional, off by default) | AWS CloudWatch | CPU stays under 3% for the hours you chose while running | Email you |
+| SSH helper (`ec2_up.py`) | Your computer, optional | You run `ssh` | Try the address first. If it doesn't answer, ask the wake page to start the instance, wait, then connect. |
 
 ---
 
@@ -78,7 +78,7 @@ stateDiagram-v2
 - ✉️ **You always get the full warning time.** The 15 minutes count from when the email was actually sent.
 - 🧯 **Email trouble can't block the stop.** After 3 failed emails in a row, it stops without one. The "stopped" email is sent after the stop request, so it can never delay it.
 - 📬 **Quiet inbox.** At most one warning email per hour, even if you connect and disconnect several times, and one "stopped" email per stop.
-- 🔁 **Every boot starts fresh.** The idle clock is kept in memory only.
+- 🔁 **Every boot starts fresh.** The idle clock and the email limit are kept in memory only, so a restart resets both.
 
 ### What counts as "in use"
 
@@ -97,11 +97,11 @@ The timer is built to be invisible, even on the smallest instance or one that's 
 
 | What | How |
 |---|---|
-| **Almost no work most minutes** | A normal check starts no other programs. It reads login sessions through systemd's own library and Session Manager sessions from `/proc`, then exits. |
+| **Almost no work most minutes** | A normal check starts no other programs. It reads login sessions through systemd's own library and Session Manager sessions from `/proc`, then exits. (A long-job check, if you add one, runs once a minute.) |
 | **Network code only when needed** | The AWS signing and HTTPS code loads only when an email or a stop is due. |
 | **Fast start** | Python runs with `-I -S` (isolated, without site packages). |
 | **Low priority** | It runs at `Nice=10` with `CPUWeight=20` and low IO priority, so your workloads always come first. |
-| **Small, capped memory** | It uses about 10 MB, with a soft limit of 48 MB and a hard limit of 96 MB. |
+| **Capped memory** | A soft limit of 48 MB and a hard limit of 96 MB. |
 | **Copes with a busy host** | Runs delayed by up to 5 minutes still count toward the idle time. Only a longer pause restarts the clock. |
 | **Fails safe** | If a check can't finish, for example under memory pressure, the instance simply stays on. It never stops by mistake. |
 
@@ -149,7 +149,7 @@ sequenceDiagram
 | The PIN is stored as a hidden stack setting | Hashing a short PIN adds no real protection, and setup stays one simple step. | A hash you had to compute by hand. |
 | The timer talks to AWS directly | Nothing extra to install on the instance. | Installing the AWS command-line tools. |
 | Only logged-in sessions count | Internet scanners can't keep it awake. | Counting any network connection. |
-| The backup alarm only emails by default | Quiet editing uses little CPU, so an automatic stop could cut you off. | Stopping automatically on low CPU. |
+| The backup alarm only emails | Quiet editing uses little CPU, so an automatic stop could cut you off. | Stopping automatically on low CPU. |
 | The instance finds its own ID | Nothing to type wrong, and it can only ever stop itself. | Typing the ID into a settings file. |
 | Terminal wakes wait before replying | One command gives you a final answer. | Live streaming, which this Lambda runtime can't do. |
 | No "wake on SSH attempt" | AWS only notices such attempts minutes later, and not reliably. | Watching network logs. |
@@ -161,5 +161,6 @@ sequenceDiagram
 - 1️⃣ **One instance per stack.** For another instance, create another stack with a different name.
 - ⏳ **Terminal progress arrives at the end** of the wait. Repeat the status command to follow along live.
 - 🧯 **The backup alarm only sees CPU,** not your connections. That's why it emails rather than stops.
+- 🔒 **The wrong-PIN lock is shared by everyone,** including you. Someone guessing wrong can lock the page for 15 minutes. You can still start the instance from the EC2 console.
 - 🌍 **The IP address changes** at each start unless you choose a fixed IP.
 - 🐧 **Linux only.** Windows instances aren't supported.

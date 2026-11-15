@@ -11,7 +11,6 @@ wrong tries lock the page for a while (state kept in a small DynamoDB table),
 so even a short PIN cannot be guessed. The PIN can only start the instance.
 """
 
-import base64
 import hmac
 import json
 import os
@@ -157,7 +156,7 @@ async function run(action, attempt = 0) {
   $("wake").disabled = $("status").disabled = true;
   try {
     const data = await call(action);
-    if (data && action === "wake" && !data.ready && !data.dryRun && attempt < 60
+    if (data && action === "wake" && !data.ready && attempt < 60
         && data.state !== "terminated" && data.state !== "shutting-down") {
       timer = setTimeout(() => run("wake", attempt + 1), 5000);
     } else if (data && data.ready && action === "wake") {
@@ -196,7 +195,7 @@ def read_request(event):
     """Return a dict of request fields from a JSON or form body."""
     body = event.get("body") or ""
     if event.get("isBase64Encoded"):
-        body = base64.b64decode(body).decode("utf-8")
+        raise ValueError("Send the PIN as a plain form or JSON body")
     headers = lowered(event.get("headers"))
     kind = headers.get("content-type", "")
     if "json" in kind or body.lstrip().startswith("{"):
@@ -207,9 +206,7 @@ def read_request(event):
     else:
         fields = {name: values[-1] for name, values in urllib.parse.parse_qs(body).items()}
         fields["_body"] = "form"
-    pin = (fields.get("pin") or fields.get("key") or headers.get("x-wake-pin")
-           or headers.get("x-wake-key") or "")
-    fields["pin"] = str(pin).strip()[:128]
+    fields["pin"] = str(fields.get("pin") or "").strip()[:128]
     return fields, headers
 
 
@@ -365,7 +362,7 @@ def summary(instance, state):
     return data
 
 
-def wake(instance_id, budget, dry_run):
+def wake(instance_id, budget):
     """Start the instance if needed and wait up to budget seconds until it is ready."""
     began = time.monotonic()
     progress, last, started = [], None, False
@@ -380,16 +377,6 @@ def wake(instance_id, budget, dry_run):
             note(state)
             last = state
         if state == "stopped" and not started:
-            if dry_run:
-                try:
-                    ec2.start_instances(InstanceIds=[instance_id], DryRun=True)
-                except ClientError as error:
-                    if error.response["Error"]["Code"] != "DryRunOperation":
-                        raise
-                    note("dry run: start permission verified")
-                    return {**summary(instance, state), "dryRun": True, "progress": progress,
-                            "message": "Dry run. Start permission verified."}
-                raise RuntimeError("EC2 did not return the expected DryRunOperation")
             try:
                 result = ec2.start_instances(InstanceIds=[instance_id])
                 started = True
@@ -467,9 +454,9 @@ def lambda_handler(event, context):
         print(f"status: {data['state']}")
         return reply(200, data, text)
 
-    data = wake(instance_id, budget, os.environ.get("DRY_RUN", "false").lower() == "true")
+    data = wake(instance_id, budget)
     print(f"wake: {data['state']} ready={data['ready']} after {data['progress'][-1]['seconds']}s")
-    if data["ready"] or data.get("dryRun"):
+    if data["ready"]:
         status = 200
     elif data["state"] in ENDED or data["state"] == "stopping":
         status = 409
