@@ -9,8 +9,21 @@ EnvironmentFile=/etc/ec2-idle.conf
 RuntimeDirectory=ec2-idle
 RuntimeDirectoryMode=0700
 RuntimeDirectoryPreserve=yes
-TimeoutStartSec=90
-ExecStart=/usr/bin/python3 /usr/local/sbin/ec2_idle.py
+# -I -S: isolated mode without site-packages, so Python starts faster and loads less.
+ExecStart=/usr/bin/python3 -I -S /usr/local/sbin/ec2_idle.py
+TimeoutStartSec=120
+
+# Stay light and out of the way of real work, even on small or busy hosts.
+# A typical check uses well under 1 second of CPU and about 10 MB of memory.
+Nice=10
+CPUWeight=20
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+MemoryHigh=48M
+MemoryMax=96M
+TasksMax=16
+
+# Hardening
 NoNewPrivileges=yes
 ProtectHome=read-only
 ProtectSystem=full

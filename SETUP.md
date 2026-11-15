@@ -154,7 +154,7 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 | `InstanceRoleName` | empty | Your existing role name. If empty, a new role is created. |
 | `SshUser` | `ubuntu` | Login name shown in the connect command. |
 | `EbsKmsKeyArn` | empty | Only needed if your disk uses your own encryption key. |
-| `NotificationEmail` | empty | Where warning emails go. |
+| `NotificationEmail` | empty | Where the warning and stopped emails go. |
 | `WorkHoursStart`, `ScheduleTimezone` | empty, `UTC` | Optional daily start. [Schedule format](https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html#cron-based) |
 | `BackupAlarmHours` | `4` | Email you if the instance runs this many hours at low CPU without stopping. `0` turns it off. |
 | `BackupAlarmCpuPercent` | `3` | The CPU level that counts as "low". |
@@ -234,17 +234,20 @@ aws ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].Publi
 2. Paste the **GuestInstallCommand** from Step 2. It looks like this:
 
    ```bash
-   bash install_guest.sh --topic <ALERT_TOPIC_ARN>
+   bash install_guest.sh --topic <ALERT_TOPIC_ARN> --wake-url <WAKE_URL>
    ```
+
+   Optionally add `--name my-dev-box` to use a friendly name in emails. Otherwise the instance ID is used.
 
 **You should see:**
 
 ```text
 OK    Login session check works (1 remote session(s) now)
 OK    Role can stop this instance (DryRunOperation)
-OK    Test email accepted by SNS. …
+OK    Test email accepted by SNS. …   (only on the first install)
 All checks passed.
 Installed. Mode stop: warning at 30 idle minutes, stop at 45.
+Emails: one warning (at most one per hour), then one 'stopped' email with your wake page link.
 ```
 
 > [!WARNING]

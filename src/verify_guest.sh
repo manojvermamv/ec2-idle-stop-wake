@@ -52,12 +52,12 @@ sudo -n systemd-run --unit="$unit" --on-active=1s --on-unit-inactive=30s \
     --property="RuntimeDirectory=$unit" --property=RuntimeDirectoryPreserve=yes \
     --setenv=IDLE_MODE=dry-run --setenv=WARN_MINUTES=1 --setenv=STOP_MINUTES=2 \
     --setenv=EC2_IDLE_IGNORE_SESSIONS=1 --setenv="WORK_PROBE=$scratch/probe" \
-    /usr/bin/python3 "$PWD/ec2_idle.py"
+    /usr/bin/python3 -I -S "$PWD/ec2_idle.py"
 sudo -n systemctl list-timers "$unit.timer" --no-pager
 
 for attempt in {1..17}; do
     log=$(sudo -n journalctl -u "$unit.service" --no-pager -o cat)
-    if grep -Fq 'Would call EC2 StopInstances.' <<< "$log"; then
+    if grep -Fq 'Would call EC2 StopInstances' <<< "$log"; then
         printf '%s\n' "$log"
         grep -Fq 'Would publish warning.' <<< "$log"
         echo "Dry-run cycle passed."

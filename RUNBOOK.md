@@ -6,7 +6,7 @@
 > **In short**
 > - **Start:** open your wake page and tap **Wake**.
 > - **Work:** as usual.
-> - **Stop:** close your connections. You get a warning email at 30 minutes, and the instance stops at 45.
+> - **Stop:** close your connections. You get one warning email at 30 minutes. At 45 it stops, and you get one "stopped" email with your wake link.
 >
 > `<WAKE_URL>` is your wake page link (**WakePageUrl** in the stack's Outputs tab). `<WAKE_KEY>` is in your password manager.
 
@@ -117,7 +117,7 @@ None of these need anything installed.
 
 | What | How | Takes effect |
 |---|---|---|
-| Warning or stop times, long-job check | On the instance: `sudoedit /etc/ec2-idle.conf` | Within 1 minute |
+| Warning or stop times, long-job check, name in emails (`INSTANCE_NAME`), wake link in emails (`WAKE_PAGE_URL`), warning email limit (`WARN_EMAIL_GAP_MINUTES`, default 60) | On the instance: `sudoedit /etc/ec2-idle.conf` | Within 1 minute |
 | Pause auto-stop | On the instance: `sudo systemctl disable --now ec2-idle.timer` | Immediately |
 | Turn auto-stop back on | On the instance: `sudo systemctl enable --now ec2-idle.timer` | Immediately |
 | Email, schedule, alarm, login name | CloudFormation → `ec2-idle` → **Update → Use existing template**, then edit the values | After the update |
@@ -149,10 +149,12 @@ sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idl
 
 Only logged-in connections count as activity. Web apps you use without an SSH login, and jobs your long-job check doesn't cover, don't count. Add a [long-job check](SETUP.md#step-4-install-the-idle-timer-on-the-instance) for them.
 
-### ✉️ No warning email
+### ✉️ No warning or stopped email
 
 1. Confirm the subscription email from AWS, and check your spam folder.
 2. To send a test, run the `--check` command with `--test-email` added.
+3. **Expected quiet:** after one warning, no second one is sent for 60 minutes, even if you reconnect and leave again. The log then says `Warning email skipped`.
+4. **No link in the stopped email?** Run the installer again with `--wake-url <WAKE_URL>` (included in the stack's **GuestInstallCommand**).
 
 If emails keep failing, the instance still stops after 3 tries, so it doesn't run up costs.
 

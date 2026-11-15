@@ -41,13 +41,15 @@ class IdleTests(Case):
         folder = self.enter(tempfile.TemporaryDirectory())
         self.state = Path(folder, "state.json")
         self.env = {"IDLE_MODE": "dry-run", "WARN_MINUTES": "1", "STOP_MINUTES": "2",
-                    "WORK_PROBE": "", "SNS_TOPIC_ARN": "arn:aws:sns:test-region:1:topic"}
+                    "WORK_PROBE": "", "SNS_TOPIC_ARN": "arn:aws:sns:test-region:1:topic",
+                    "WAKE_PAGE_URL": "https://wake.example/", "INSTANCE_NAME": "dev-box"}
         self.activity = self.enter(patch.object(ec2_idle, "busy_reason", return_value=None))
         self.publish = self.enter(patch.object(ec2_idle, "publish"))
         self.stop = self.enter(patch.object(ec2_idle, "stop_instance"))
-        self.context = self.enter(patch.object(ec2_idle, "instance_context",
-                                               return_value={"instance_id": "i-test"}))
+        self.context = self.enter(patch.object(ec2_idle, "instance_context", return_value={
+            "instance_id": "i-test", "region": "test-region", "name": ""}))
         self.clock = self.enter(patch.object(ec2_idle.time, "monotonic"))
+        self.wall = self.enter(patch.object(ec2_idle.time, "time", return_value=50_000))
         self.output = self.enter(contextlib.redirect_stdout(io.StringIO()))
         self.enter(contextlib.redirect_stderr(io.StringIO()))
 
@@ -78,10 +80,11 @@ class IdleTests(Case):
 
     def test_gap_and_probe_failure_reset_idle(self):
         self.check(1000)
-        self.assertEqual(self.check(1200)["since"], 1200)
+        self.assertEqual(self.check(1250)["since"], 1000)   # a slow, busy host is tolerated
+        self.assertEqual(self.check(1600)["since"], 1600)   # a long pause restarts the clock
         self.activity.side_effect = RuntimeError("probe unavailable")
         with self.assertRaisesRegex(RuntimeError, "probe"):
-            self.check(1260)
+            self.check(1660)
         self.assertEqual(json.loads(self.state.read_text()), {})
 
     def test_final_recheck_cancels_stop(self):
@@ -98,8 +101,51 @@ class IdleTests(Case):
         calls.attach_mock(self.stop, "stop")
         for now in (1000, 1060, 1120):
             self.check(now)
-        self.assertEqual([name for name, _, _ in calls.mock_calls], ["publish", "stop"])
-        self.assertIn("i-test has been idle", self.publish.call_args.args[3])
+        self.assertEqual([name for name, _, _ in calls.mock_calls], ["publish", "stop", "publish"])
+        (_, _, warn_subject, warn_body), (_, _, stop_subject, stop_body) = [
+            c.args for c in self.publish.call_args_list]
+        self.assertEqual(warn_subject, "EC2 dev-box (i-test) will stop in 1 minute")
+        self.assertIn("has had no activity for 1 minute.", warn_body)
+        self.assertEqual(stop_subject, "EC2 dev-box (i-test) has stopped")
+        self.assertIn("https://wake.example/", stop_body)
+        self.assertIn("curl -d key=YOUR_WAKE_KEY -d action=wake https://wake.example/", stop_body)
+        for text in (warn_subject, stop_subject):
+            self.assertTrue(text.isascii() and len(text) < 100)
+
+    def test_one_warning_per_hour_even_across_idle_cycles(self):
+        self.env["IDLE_MODE"] = "stop"
+        self.check(1000)
+        self.check(1060)                       # warning email
+        self.activity.return_value = "remote login session"
+        self.check(1100)                       # you came back
+        self.activity.return_value = None
+        self.check(1110)
+        self.wall.return_value = 50_000 + 30 * 60
+        self.check(1170)                       # idle again 30 min later: no second warning
+        self.assertEqual(self.publish.call_count, 1)
+        self.assertIn("Warning email skipped", self.output.getvalue())
+        self.activity.return_value = "remote login session"
+        self.check(1180)                       # you came back again
+        self.activity.return_value = None
+        self.wall.return_value = 50_000 + 61 * 60
+        self.check(1190)
+        self.check(1250)                       # new cycle after an hour may warn again
+        warnings = [c for c in self.publish.call_args_list if "will stop" in c.args[2]]
+        self.assertEqual(len(warnings), 2)
+
+    def test_stopped_email_is_sent_once_and_never_blocks_the_stop(self):
+        self.env["IDLE_MODE"] = "stop"
+        for now in (1000, 1060):
+            self.check(now)
+        self.publish.side_effect = RuntimeError("SNS down")
+        self.check(1120)                       # stop requested although the email failed
+        self.stop.assert_called_once()
+        self.publish.side_effect = None
+        for now in range(1180, 1780, 60):      # still running 10 min later: stop is retried
+            self.check(now)
+        self.assertEqual(self.stop.call_count, 2)
+        stopped = [c for c in self.publish.call_args_list if "has stopped" in c.args[2]]
+        self.assertEqual(len(stopped), 1)
 
     def test_delayed_email_preserves_full_warning_window(self):
         self.env["IDLE_MODE"] = "stop"
@@ -147,7 +193,8 @@ class IdleTests(Case):
 
     def test_invalid_config_is_rejected(self):
         for change in ({"IDLE_MODE": "maybe"}, {"WARN_MINUTES": "5", "STOP_MINUTES": "5"},
-                       {"SNS_TOPIC_ARN": "topic"}, {"WARN_RETRIES": "0"}):
+                       {"SNS_TOPIC_ARN": "topic"}, {"WARN_RETRIES": "0"},
+                       {"WAKE_PAGE_URL": "http://insecure.example/"}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 ec2_idle.load_config({**self.env, **change})
 
@@ -167,9 +214,34 @@ class ActivityTests(Case):
                    "c3": completed(0, "Remote=no\nState=active\n"),
                    "4": completed(1)}
         with self.sessions(listing, details):
-            self.assertEqual(ec2_idle.remote_sessions(), 1)
+            self.assertEqual(ec2_idle._sessions_loginctl(), 1)
         with self.sessions("", {}):
-            self.assertEqual(ec2_idle.remote_sessions(), 0)
+            self.assertEqual(ec2_idle._sessions_loginctl(), 0)
+
+    def test_session_counting_rules_and_library_fallback(self):
+        remote = {"1": True, "2": True, "3": False}
+        states = {"1": "active", "2": "closing", "3": "active"}
+        self.assertEqual(ec2_idle.count_remote(remote, remote.get, states.get), 1)
+        with patch.object(ec2_idle, "_sessions_sd_login", return_value=2) as library, \
+                patch.object(ec2_idle, "_sessions_loginctl") as fallback:
+            self.assertEqual(ec2_idle.remote_sessions(), 2)
+            fallback.assert_not_called()
+        with patch.object(ec2_idle, "_sessions_sd_login", side_effect=OSError("no libsystemd")), \
+                patch.object(ec2_idle, "_sessions_loginctl", return_value=3):
+            self.assertEqual(ec2_idle.remote_sessions(), 3)
+
+    def test_session_manager_found_by_scanning_proc(self):
+        with tempfile.TemporaryDirectory() as proc:
+            for pid, comm in (("1", b"systemd\n"), ("42", b"sshd\n"), ("self", b"x\n")):
+                Path(proc, pid).mkdir()
+                Path(proc, pid, "comm").write_bytes(comm)
+            with patch.object(ec2_idle, "PROC_ROOT", proc), \
+                    patch.object(ec2_idle, "run") as run:
+                self.assertFalse(ec2_idle.ssm_session())
+                Path(proc, "77").mkdir()
+                Path(proc, "77", "comm").write_bytes(b"ssm-session-wor\n")
+                self.assertTrue(ec2_idle.ssm_session())
+                run.assert_not_called()
 
     def test_busy_reasons_and_probe_exit_codes(self):
         with patch.object(ec2_idle, "remote_sessions", return_value=1):
@@ -187,7 +259,8 @@ class ActivityTests(Case):
                     self.assertEqual(ec2_idle.busy_reason("/probe", check_sessions=False),
                                      expected)
 
-    def test_ssm_session_detection(self):
+    def test_ssm_session_detection_without_proc_uses_pgrep(self):
+        self.enter(patch.object(ec2_idle, "PROC_ROOT", "/no/such/proc"))
         for code, expected in [(0, True), (1, False)]:
             with patch.object(ec2_idle, "run", return_value=completed(code)):
                 self.assertEqual(ec2_idle.ssm_session(), expected)
@@ -241,7 +314,7 @@ class SigningTests(Case):
         connection.getresponse.return_value = response
         ctx = {"instance_id": "i-test", "region": "test-region", "domain": "amazonaws.com",
                "credentials": self.credentials}
-        with patch.object(ec2_idle.http.client, "HTTPSConnection", return_value=connection):
+        with patch("http.client.HTTPSConnection", return_value=connection):
             with self.assertRaises(ec2_idle.AwsError) as raised:
                 ec2_idle.stop_instance(ctx, dry_run=True)
         self.assertEqual(raised.exception.code, "DryRunOperation")

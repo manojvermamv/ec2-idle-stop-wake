@@ -8,7 +8,7 @@ Your EC2 instance (a computer you rent from AWS) turns itself off when you stop 
 
 > [!TIP]
 > **In short**
-> - **Stops by itself.** After 45 quiet minutes, with an email warning at 30.
+> - **Stops by itself.** After 45 quiet minutes, with one warning email at 30 and one "stopped" email that includes your wake link.
 > - **Wakes from anywhere.** A private web page, a one-line terminal command, or a daily schedule.
 > - **Saves money.** About two-thirds less than leaving it on all the time, for a typical weekday routine.
 
@@ -20,8 +20,8 @@ Your EC2 instance (a computer you rent from AWS) turns itself off when you stop 
 |---|---|---|
 | 🌅 Morning | The instance starts, from your schedule or when you tap **Wake** on your bookmarked page. | Open your editor or terminal and connect as usual. |
 | 💻 While working | Your open connection keeps it running. | Nothing. |
-| ✉️ You finish | 30 minutes later you get an email: "stopping in 15 minutes". | Nothing, or reconnect to keep it running. |
-| 💤 45 minutes later | It stops. Your files stay saved on its disk. | Nothing. You only pay for storage now. |
+| ✉️ You finish | 30 minutes later you get **one** email: "will stop in 15 minutes". | Nothing, or reconnect to keep it running. |
+| 💤 45 minutes later | It stops, and you get **one** "has stopped" email with your wake page link. Your files stay saved on its disk. | Nothing. You only pay for storage now. Tap the link when you need it again. |
 
 ---
 
@@ -29,7 +29,7 @@ Your EC2 instance (a computer you rent from AWS) turns itself off when you stop 
 
 | | Feature | What it means for you |
 |---|---|---|
-| 💤 | **Stops by itself** | A small timer inside the instance checks every minute and stops it after 45 idle minutes. No other machine is involved. |
+| 💤 | **Stops by itself** | A tiny timer inside the instance checks every minute and stops it after 45 idle minutes. It's lightweight enough for the smallest instance and stays out of the way of heavy workloads. No other machine is involved. |
 | 🌐 | **Wake page** | A private link to open on any browser or phone. Tap **Wake**, and it shows when the instance is ready and the command to connect. |
 | ⌨️ | **Wake from a terminal or code** | One command wakes the instance, waits until it's ready, and prints the progress. Scripts and AI agents can use it too. |
 | ⏰ | **Work-hours start** (optional) | It starts on a timetable you choose, for example 9:00 on weekdays. |
@@ -50,6 +50,21 @@ progress:
    24s  running
    26s  ready
 ```
+
+---
+
+## 📬 Emails you'll get
+
+Never more than these, so your inbox stays quiet:
+
+| Email | When | How often |
+|---|---|---|
+| **"… will stop in 15 minutes"** | After 30 minutes with no activity | **At most once per hour**, even if you come and go |
+| **"… has stopped"** | Right after it stops, with your **wake page link** and a ready-to-copy wake command | **Once per stop** |
+| **"Idle stop is set up"** | When you first install, or change the email topic | Once |
+| **AWS "ALARM"** (backup alarm) | After hours of quiet running, for example an editor left open | Once per incident |
+
+Email trouble never blocks the stop, so a broken email setup can't leave the instance running and costing money.
 
 ---
 

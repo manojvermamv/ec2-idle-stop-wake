@@ -148,7 +148,7 @@ Instance: <INSTANCE_ID> (<NAME>, <OS>, <TYPE>)
 Stack:    ec2-idle (new | update)
 
 Creates:  wake page (Lambda + link), permissions, 14-day logs
-          warning email + subscription          [if email]
+          warning + stopped emails, subscription [if email]
           work-hours start <CRON> <TIME_ZONE>   [if schedule]
           backup alarm (<email | stop>)
           new instance role                     [if none exists]
@@ -174,7 +174,7 @@ Expect:   an "ALARM" email soon after deploy if the instance is already idle.
 | 4.4 | – | Ask the user to confirm the subscription email **now, before 4.7**, and wait for their "done". Mention that an "ALARM" email may also arrive (see the plan). | The user confirms |
 | 4.5 | G4 | Attach the role, if `AttachRoleCommand` exists: `ec2:AssociateIamInstanceProfile`. Then **wait about 60 seconds** for it to take effect. | `"State": "associating"` |
 | 4.6 | G4 | Set up a new fixed IP, if chosen (SETUP Step 3b). Skip if one is already attached. | The fixed IP |
-| 4.7 | G4 | **On the instance**, never on the user's computer: `git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git`, then `cd ec2-idle-stop-wake/src`, then `GuestInstallCommand`, adding `--probe` if needed. If you have no shell on the instance, give the user these exact commands for their terminal (SSH, Instance Connect or Session Manager). | `All checks passed.` then `Installed.` |
+| 4.7 | G4 | **On the instance**, never on the user's computer: `git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git`, then `cd ec2-idle-stop-wake/src`, then `GuestInstallCommand` (it already includes `--topic` and `--wake-url`), adding `--probe` and `--name` if wanted. If you have no shell on the instance, give the user these exact commands for their terminal (SSH, Instance Connect or Session Manager). | `All checks passed.` then `Installed.` |
 | 4.7b | – | Confirm on the instance: `systemctl list-timers ec2-idle.timer --no-pager`. "0 timers listed" means the install didn't happen there. If the user reports success, still ask for this output. | One timer listed |
 | 4.7c | G4 | If you opened temporary SSH access, remove that rule now (`ec2:RevokeSecurityGroupIngress` by rule ID). | The rule is gone |
 | 4.8 | – | Set up the chosen way to connect (SETUP Step 5). Edit SSH config only with the user's OK, and never inside the repo. | `ssh -G <alias>` shows the setting |

@@ -4,7 +4,8 @@ Description=Check EC2 idle time every minute after boot
 [Timer]
 OnBootSec=5min
 OnUnitInactiveSec=1min
-AccuracySec=5s
+# A little slack lets systemd group wake-ups, which is lighter on the host.
+AccuracySec=15s
 
 [Install]
 WantedBy=timers.target

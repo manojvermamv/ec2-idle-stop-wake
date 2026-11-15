@@ -18,7 +18,7 @@ Each level proves a bit more. The first five never stop your instance.
 | 🔵 1. Unit tests | The program logic works. | Any computer | Yes |
 | 🔵 2. Template check | The AWS stack file is valid. | Any computer | Yes |
 | 🔵 3. Account check | Your account and instance are suitable. | CloudShell | Yes, read-only |
-| 🟡 4. Instance check | Connections, permissions and email work on the instance. | Instance | Sends one test email |
+| 🟡 4. Instance check | Connections, permissions and email work on the instance. | Instance | Sends one test email (first install only) |
 | 🟡 5. Practice run | The timer would warn and stop on time, but doesn't. | Instance | Yes |
 | 🟡 5b. Practice wake | The wake page is allowed to start the instance. | Browser or terminal | Yes |
 | 🟢 6. Live test | Everything, for real. | Everywhere | **Stops the instance** |
@@ -112,13 +112,13 @@ sudo -v && bash verify_guest.sh
 
 | Step | Do this | Where | You should see |
 |---|---|---|---|
-| 1 | `bash install_guest.sh --topic <ALERT_TOPIC_ARN> --warn 2 --stop 4`, **on the instance** (not your PC) | Instance | `Installed. Mode stop: warning at 2 …` |
+| 1 | `bash install_guest.sh --warn 2 --stop 4`, **on the instance** (not your PC). The topic and wake link are kept from the first install. | Instance | `Installed. Mode stop: warning at 2 …` |
 | 2 | Close **every** connection and editor window | Your devices | – |
-| 3 | Wait about 3 minutes | – | The warning email arrives |
+| 3 | Wait about 3 minutes | – | One warning email arrives |
 | 4 | Wait about 2 more minutes | EC2 console | **Stopped** |
 | 5 | `curl -d key=<WAKE_KEY> -d action=wake <WAKE_URL>` | Any terminal | `ready: yes` and an `ssh:` line |
 | 6 | Connect and look at your files | Instance | Everything is still there |
-| 7 | `bash install_guest.sh --topic <ALERT_TOPIC_ARN>` | Instance | Back to 30 and 45 minutes |
+| 7 | `bash install_guest.sh` | Instance | Back to 30 and 45 minutes, with no extra test email |
 
 **Optional extra checks**
 - [ ] **Schedule:** set the start time a few minutes ahead while the instance is stopped. It should start on time.
