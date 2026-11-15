@@ -8,8 +8,7 @@ exec > >(tee "$log") 2>&1
 report_failure() {
     local status=$?
     if [ "$status" -ne 0 ]; then
-        echo "::error title=${CI_IMAGE:-image} ($(uname -m)) failed::$(tail -n 25 "$log" | sed -e 's/%/%25/g' -e ':a;N;$!ba;s/
-/%0A/g')"
+        echo "::error title=${CI_IMAGE:-image} ($(uname -m)) failed::$(tail -n 25 "$log" | sed -e 's/%/%25/g' -e ':a;N;$!ba;s/\n/%0A/g')"
     fi
 }
 trap report_failure EXIT

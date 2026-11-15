@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# A newer push cancels the run it replaces.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: Lint, docs and systemd units
@@ -27,8 +32,7 @@ jobs:
         run: |
           if ! out=$(shellcheck -S warning -f gcc src/*.sh .github/ci/*.sh 2>&1); then
             echo "$out"
-            echo "::error title=shellcheck::$(echo "$out" | head -n 30 | sed -e 's/%/%25/g' -e ':a;N;$!ba;s/
-/%0A/g')"
+            echo "::error title=shellcheck::$(echo "$out" | head -n 30 | sed -e 's/%/%25/g' -e ':a;N;$!ba;s/\n/%0A/g')"
             exit 1
           fi
       - name: Docs still match the code
