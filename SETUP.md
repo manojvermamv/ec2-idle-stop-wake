@@ -1,4 +1,4 @@
-# Setup guide
+# 🧭 Setup guide
 
 [README](README.md) · [How it works](WORKFLOW.md) · [Agent setup](AGENT_SETUP.md) · [Runbook](RUNBOOK.md) · [Testing](TESTING.md)
 
@@ -8,18 +8,18 @@
 > - **Time:** about 15 minutes, once.
 > - **You need:** the AWS console and your usual way of connecting to the instance. Nothing gets installed on your computer.
 >
-> Prefer an AI assistant? Use the [one-line prompt](README.md#let-an-ai-agent-do-it) instead.
+> Prefer an AI assistant? Use the [one-line prompt](README.md#-let-an-ai-agent-do-it) instead.
 
 ---
 
 ## 🧰 Before you start
 
 **How to read the steps:**
-- **Run in:** says where to type the commands:
+- **▶ Run in:** says where to type the commands:
   - **CloudShell** is the terminal inside the AWS console. Open it from the icon in the top bar.
   - **Instance** means your EC2 instance, connected over SSH.
   - **Your computer** means a terminal on your own machine.
-- **Changes nothing / Changes AWS** tells you whether a step changes anything.
+- 🔒 **Changes nothing** / ✏️ **Changes AWS** tells you whether a step changes anything.
 - **You should see** shows what success looks like.
 - `<LIKE_THIS>` marks a value to replace. You collect these values in Step 0.
 
@@ -41,9 +41,9 @@
 
 Collect the values the next steps need. You can let a script find most of them, or fill them in yourself.
 
-### Option A: let the check script find them
+### Option A: let the check script find them 🔍
 
-**Run in:** CloudShell · **Changes nothing**
+**▶ Run in:** CloudShell · 🔒 **Changes nothing**
 
 1. In CloudShell, choose **Actions → Upload file** and upload `discover.sh`.
 2. Run:
@@ -57,7 +57,7 @@ bash discover.sh --instance <INSTANCE_ID>  # checks one and suggests settings
 - A **Suggested stack parameters** list. Copy it into the table below.
 - A **Findings** list. Lines starting with `UNSUPPORTED` or `FIX` must be sorted out first.
 
-### Option B: fill it in yourself
+### Option B: fill it in yourself ✍️
 
 | Setting | Where to find it | Your value |
 |---|---|---|
@@ -80,7 +80,7 @@ bash discover.sh --instance <INSTANCE_ID>  # checks one and suggests settings
 
 The wake key is the password for your wake page. AWS only keeps a scrambled fingerprint of it, called the **hash**.
 
-**Run in:** CloudShell (or a Mac or Linux terminal) · **Changes nothing**
+**▶ Run in:** CloudShell (or a Mac or Linux terminal) · 🔒 **Changes nothing**
 
 ```bash
 key=$(openssl rand -hex 20); echo "Wake key: $key"; echo "Hash:     $(printf '%s' "$key" | sha256sum | cut -d' ' -f1)"
@@ -107,7 +107,7 @@ $b = [byte[]]::new(20); [Security.Cryptography.RandomNumberGenerator]::Create().
 
 This creates everything in one go from the file `ec2-idle-stack.yaml`: the wake page, permissions, email and optional schedule. AWS calls this bundle a **stack**.
 
-**Run in:** AWS console · **Changes AWS**
+**▶ Run in:** AWS console · ✏️ **Changes AWS**
 
 1. Open **CloudFormation → Create stack → With new resources**.
 2. Choose **Upload a template file** and pick `ec2-idle-stack.yaml`.
@@ -170,7 +170,7 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 
 ## Step 3: Give the instance its permission
 
-**Run in:** CloudShell · **Changes AWS**
+**▶ Run in:** CloudShell · ✏️ **Changes AWS**
 
 **3a.** Do this only if the **AttachRoleCommand** output exists. Copy it from the Outputs tab and run it.
 
@@ -190,7 +190,7 @@ aws ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].Publi
 
 ## Step 4: Install the idle timer on the instance
 
-**Run in:** your computer, then the instance · **Changes the instance**
+**▶ Run in:** your computer, then the instance · ✏️ **Changes the instance**
 
 1. Copy this folder to the instance and connect:
 
@@ -263,10 +263,10 @@ By default, the instance stops 45 minutes after your last connection closes. If 
 
 | Way | Setup | Every day |
 |---|---|---|
-| **Wake page** | Bookmark **WakePageUrl**. | Tap **Wake**, then copy the connect command it shows. |
-| **Terminal** | None. Works anywhere `curl` exists, including Windows 10+. | Run the **TerminalWakeCommand**, then the `ssh:` line it prints. |
-| **Fixed IP** | Add a normal SSH entry with your fixed IP. | Wake first, then connect as usual. |
-| **Automatic** (optional) | Add `ec2_up.py` to your SSH config. Needs Python, but no AWS tools. | Just connect. It wakes the instance for you. |
+| 🌐 **Wake page** | Bookmark **WakePageUrl**. | Tap **Wake**, then copy the connect command it shows. |
+| ⌨️ **Terminal** | None. Works anywhere `curl` exists, including Windows 10+. | Run the **TerminalWakeCommand**, then the `ssh:` line it prints. |
+| 📌 **Fixed IP** | Add a normal SSH entry with your fixed IP. | Wake first, then connect as usual. |
+| 🔁 **Automatic** (optional) | Add `ec2_up.py` to your SSH config. Needs Python, but no AWS tools. | Just connect. It wakes the instance for you. |
 
 <details>
 <summary>Automatic SSH setup (Mac, Linux, Windows)</summary>
@@ -302,7 +302,7 @@ Host ec2-workspace
 
 ## Step 6: Test it once
 
-Follow the short live test in [TESTING.md](TESTING.md#level-6-live-acceptance-cycle). It takes about 5 minutes: the instance stops, you wake it, and you check your files.
+Follow the short live test in [TESTING.md](TESTING.md#-level-6-live-acceptance-cycle). It takes about 5 minutes: the instance stops, you wake it, and you check your files.
 
 ---
 

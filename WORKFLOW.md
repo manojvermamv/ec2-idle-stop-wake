@@ -1,4 +1,4 @@
-# How it works
+# 🧠 How it works
 
 [README](README.md) · [Setup](SETUP.md) · [Agent setup](AGENT_SETUP.md) · [Runbook](RUNBOOK.md) · [Testing](TESTING.md)
 
@@ -28,14 +28,14 @@
 
 ```mermaid
 flowchart TB
-    subgraph Cloud["AWS (one stack, your Region)"]
-        URL["Wake page and API<br/>Lambda Function URL"]
-        SCH["Work-hours start<br/>EventBridge Scheduler (optional)"]
-        SNS["Warning email<br/>SNS"]
-        CW["Backup alarm<br/>CloudWatch"]
+    subgraph Cloud["☁️ AWS (one stack, your Region)"]
+        URL["🌐 Wake page and API<br/>Lambda Function URL"]
+        SCH["⏰ Work-hours start<br/>EventBridge Scheduler (optional)"]
+        SNS["✉️ Warning email<br/>SNS"]
+        CW["🧯 Backup alarm<br/>CloudWatch"]
     end
-    subgraph Box["Your EC2 instance"]
-        TIMER["Timer, every minute"] --> PY["ec2_idle.py"]
+    subgraph Box["🖥️ Your EC2 instance"]
+        TIMER["⏱️ Timer, every minute"] --> PY["ec2_idle.py"]
     end
     URL -->|start| Box
     SCH -->|start| Box
@@ -73,15 +73,15 @@ stateDiagram-v2
 ```
 
 **Safety rules**
-- **When unsure, it stays on.** Any error in a check restarts the idle clock instead of moving toward a stop.
-- **Gaps restart the clock.** Two checks more than 2.5 minutes apart (after a pause, for example) start the count over.
-- **You always get the full warning time.** The 15 minutes count from when the email was actually sent.
-- **Email trouble can't block the stop.** After 3 failed emails in a row, it stops without one.
-- **Every boot starts fresh.** The idle clock is kept in memory only.
+- ❓ **When unsure, it stays on.** Any error in a check restarts the idle clock instead of moving toward a stop.
+- ⏱️ **Gaps restart the clock.** Two checks more than 2.5 minutes apart (after a pause, for example) start the count over.
+- ✉️ **You always get the full warning time.** The 15 minutes count from when the email was actually sent.
+- 🧯 **Email trouble can't block the stop.** After 3 failed emails in a row, it stops without one.
+- 🔁 **Every boot starts fresh.** The idle clock is kept in memory only.
 
 ### What counts as "in use"
 
-| Keeps it on | Doesn't keep it on |
+| Keeps it on ✅ | Doesn't keep it on ❌ |
 |---|---|
 | A logged-in SSH connection, including VS Code and Cursor | Random internet traffic hitting the SSH port, which never logs in |
 | EC2 Instance Connect and Session Manager sessions | An editor window you already closed |
@@ -95,9 +95,9 @@ stateDiagram-v2
 ```mermaid
 sequenceDiagram
     autonumber
-    participant You as You (browser, terminal, code)
-    participant L as Wake page (AWS Lambda)
-    participant E as EC2 instance
+    participant You as 🧑 You (browser, terminal, code)
+    participant L as 🌐 Wake page (AWS Lambda)
+    participant E as 🖥️ EC2 instance
     You->>L: wake + your wake key
     L->>L: check the key's fingerprint
     alt wrong key
@@ -140,8 +140,8 @@ sequenceDiagram
 
 ## 🚧 Limits
 
-- **One instance per stack.** For another instance, create another stack with a different name.
-- **Terminal progress arrives at the end** of the wait. Repeat the status command to follow along live.
-- **The backup alarm only sees CPU,** not your connections. That's why it emails rather than stops.
-- **The IP address changes** at each start unless you choose a fixed IP.
-- **Linux only.** Windows instances aren't supported.
+- 1️⃣ **One instance per stack.** For another instance, create another stack with a different name.
+- ⏳ **Terminal progress arrives at the end** of the wait. Repeat the status command to follow along live.
+- 🧯 **The backup alarm only sees CPU,** not your connections. That's why it emails rather than stops.
+- 🌍 **The IP address changes** at each start unless you choose a fixed IP.
+- 🐧 **Linux only.** Windows instances aren't supported.

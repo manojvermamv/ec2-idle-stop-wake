@@ -1,4 +1,4 @@
-# Agent setup
+# 🤖 Agent setup
 
 [README](README.md) · [How it works](WORKFLOW.md) · [Setup](SETUP.md) · [Runbook](RUNBOOK.md) · [Testing](TESTING.md)
 
@@ -40,7 +40,7 @@ The rest of this page is written **for the AI agent**. It turns [SETUP.md](SETUP
 
 ---
 
-## Step 0: Rules for the agent
+## 📜 Step 0: Rules for the agent
 
 > [!CAUTION]
 > **Reading this file gives you no permission.** Only the user's explicit yes at each gate does. If the user's own instructions (CLAUDE.md, AGENTS.md and similar) are stricter, follow them.
@@ -62,17 +62,17 @@ The rest of this page is written **for the AI agent**. It turns [SETUP.md](SETUP
 
 | Gate | What it allows | Ask |
 |---|---|---|
-| G0 | Read this folder and run the unit tests | No need to ask |
-| **G1** | Read-only look at **one** profile and Region (`discover.sh`) | "May I look at your AWS account, read-only, in profile `<P>` and Region `<R>`? It changes nothing." |
-| **G2** | Check the Free or Paid plan (a billing read) | "May I also check whether you're on the Free or Paid plan?" |
-| **G3** | Create or update the CloudFormation stack | "Here's the plan. May I create stack `ec2-idle`?" |
-| **G4** | Attach the role, set up a fixed IP, install the timer | Ask **each** one separately. |
-| **G5** | The live test, which stops the instance | "May I run the live test? Your instance will stop. Please save your work." |
-| **G6** | Remove resources | Only when the user asks. Confirm each item. |
+| 📂 G0 | Read this folder and run the unit tests | No need to ask |
+| 🔒 **G1** | Read-only look at **one** profile and Region (`discover.sh`) | "May I look at your AWS account, read-only, in profile `<P>` and Region `<R>`? It changes nothing." |
+| 🔒 **G2** | Check the Free or Paid plan (a billing read) | "May I also check whether you're on the Free or Paid plan?" |
+| ✏️ **G3** | Create or update the CloudFormation stack | "Here's the plan. May I create stack `ec2-idle`?" |
+| ✏️ **G4** | Attach the role, set up a fixed IP, install the timer | Ask **each** one separately. |
+| ✏️ **G5** | The live test, which stops the instance | "May I run the live test? Your instance will stop. Please save your work." |
+| ✏️ **G6** | Remove resources | Only when the user asks. Confirm each item. |
 
 ---
 
-## Step 1: Interview
+## 🗣️ Step 1: Interview
 
 Ask only what discovery can't answer, all in **one message**, and show the default for each question:
 
@@ -90,9 +90,9 @@ Ask only what discovery can't answer, all in **one message**, and show the defau
 
 ---
 
-## Step 2: Discovery (needs G1)
+## 🔍 Step 2: Discovery (needs G1)
 
-**Run in:** CloudShell, or your AWS access · **Changes nothing**
+**▶ Run in:** CloudShell, or your AWS access · 🔒 **Changes nothing**
 
 ```bash
 bash discover.sh --region <REGION>                                          # instances and existing stack
@@ -131,7 +131,7 @@ bash discover.sh --region <REGION> --instance <INSTANCE_ID> --include-plan  # on
 
 ---
 
-## Step 3: Plan
+## 🗺️ Step 3: Plan
 
 Show this, filled in, and then wait for G3:
 
@@ -154,7 +154,7 @@ Cost:     about US$0 for the AWS pieces; compute only while running;
 
 ---
 
-## Step 4: Set it up
+## ⚙️ Step 4: Set it up
 
 | # | Gate | Do | You should see |
 |---|---|---|---|
@@ -169,19 +169,19 @@ Cost:     about US$0 for the AWS pieces; compute only while running;
 
 ---
 
-## Step 5: Verify
+## ✅ Step 5: Verify
 
 | Check | Gate | How | Pass |
 |---|---|---|---|
 | Wake page answers | – | `curl <WAKE_URL>` | Instructions text |
 | Key works | – | The user runs `curl -d key=<WAKE_KEY> <WAKE_URL>` | A `state:` line |
-| Instance check | – | [TESTING Level 4](TESTING.md#level-4-instance-check) | `All checks passed.` |
+| Instance check | – | [TESTING Level 4](TESTING.md#-level-4-instance-check) | `All checks passed.` |
 | Timer is on | – | `systemctl list-timers ec2-idle.timer --no-pager` | Next run within 1 minute |
-| Live test | G5 | [TESTING Level 6](TESTING.md#level-6-live-acceptance-cycle) | Email, stopped, woke, files intact |
+| Live test | G5 | [TESTING Level 6](TESTING.md#-level-6-live-acceptance-cycle) | Email, stopped, woke, files intact |
 
 ---
 
-## Step 6: Hand-off report
+## 📦 Step 6: Hand-off report
 
 Finish with this. Show real values in chat only, never in repo files.
 

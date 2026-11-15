@@ -18,24 +18,24 @@ Your EC2 instance (a computer you rent from AWS) turns itself off when you stop 
 
 | When | What happens | What you do |
 |---|---|---|
-| Morning | The instance starts, from your schedule or when you tap **Wake** on your bookmarked page. | Open your editor or terminal and connect as usual. |
-| While working | Your open connection keeps it running. | Nothing. |
-| You finish | 30 minutes later you get an email: "stopping in 15 minutes". | Nothing, or reconnect to keep it running. |
-| 45 minutes later | It stops. Your files stay saved on its disk. | Nothing. You only pay for storage now. |
+| 🌅 Morning | The instance starts, from your schedule or when you tap **Wake** on your bookmarked page. | Open your editor or terminal and connect as usual. |
+| 💻 While working | Your open connection keeps it running. | Nothing. |
+| ✉️ You finish | 30 minutes later you get an email: "stopping in 15 minutes". | Nothing, or reconnect to keep it running. |
+| 💤 45 minutes later | It stops. Your files stay saved on its disk. | Nothing. You only pay for storage now. |
 
 ---
 
 ## ✨ What you get
 
-| Feature | What it means for you |
-|---|---|
-| **Stops by itself** | A small timer inside the instance checks every minute and stops it after 45 idle minutes. No other machine is involved. |
-| **Wake page** | A private link to open on any browser or phone. Tap **Wake**, and it shows when the instance is ready and the command to connect. |
-| **Wake from a terminal or code** | One command wakes the instance, waits until it's ready, and prints the progress. Scripts and AI agents can use it too. |
-| **Work-hours start** (optional) | It starts on a timetable you choose, for example 9:00 on weekdays. |
-| **Protects your work** | Open connections (SSH, VS Code, Cursor and others) keep it awake. You can also keep it awake for long jobs that run after you disconnect. |
-| **Safe by design** | Random internet traffic can't keep it awake, a broken email can't stop it from stopping, and a backup alarm tells you if anything goes wrong. |
-| **Nothing is lost** | Stopping is like shutting a laptop lid. Your files, programs and settings stay on the disk. |
+| | Feature | What it means for you |
+|---|---|---|
+| 💤 | **Stops by itself** | A small timer inside the instance checks every minute and stops it after 45 idle minutes. No other machine is involved. |
+| 🌐 | **Wake page** | A private link to open on any browser or phone. Tap **Wake**, and it shows when the instance is ready and the command to connect. |
+| ⌨️ | **Wake from a terminal or code** | One command wakes the instance, waits until it's ready, and prints the progress. Scripts and AI agents can use it too. |
+| ⏰ | **Work-hours start** (optional) | It starts on a timetable you choose, for example 9:00 on weekdays. |
+| 🛡️ | **Protects your work** | Open connections (SSH, VS Code, Cursor and others) keep it awake. You can also keep it awake for long jobs that run after you disconnect. |
+| 🧯 | **Safe by design** | Random internet traffic can't keep it awake, a broken email can't stop it from stopping, and a backup alarm tells you if anything goes wrong. |
+| 💾 | **Nothing is lost** | Stopping is like shutting a laptop lid. Your files, programs and settings stay on the disk. |
 
 This is what the terminal wake looks like:
 
@@ -59,11 +59,11 @@ Choose one way. All three end with the same setup.
 
 | Way | Good for | Time |
 |---|---|---|
-| **[Let an AI agent do it](#let-an-ai-agent-do-it)** | You use Claude Code, Codex, Cursor or a similar assistant. It asks before every step. | About 10 min |
-| **[Follow the guide yourself](SETUP.md)** | You'd rather click through the AWS console. Every step is explained. | About 15 min |
-| **[Just check my account first](SETUP.md#step-0-plan-your-setup)** | You want to see what you have before deciding. It changes nothing. | About 2 min |
+| 🤖 **[Let an AI agent do it](#-let-an-ai-agent-do-it)** | You use Claude Code, Codex, Cursor or a similar assistant. It asks before every step. | About 10 min |
+| 🧭 **[Follow the guide yourself](SETUP.md)** | You'd rather click through the AWS console. Every step is explained. | About 15 min |
+| 🔍 **[Just check my account first](SETUP.md#step-0-plan-your-setup)** | You want to see what you have before deciding. It changes nothing. | About 2 min |
 
-### Let an AI agent do it
+### 🤖 Let an AI agent do it
 
 Copy this into your AI assistant. Replace `<THIS_FOLDER_URL>` with this folder's GitHub link.
 
@@ -92,16 +92,16 @@ Follow AGENT_SETUP.md at <THIS_FOLDER_URL> up to the plan step only. Run read-on
 
 ```mermaid
 flowchart LR
-    You["You, on any device"] -->|"tap Wake"| Page["Wake page<br/>(runs in AWS)"]
-    Clock["Work-hours schedule<br/>(runs in AWS)"] -->|"start"| EC2
-    Page -->|"start"| EC2["Your EC2 instance"]
+    You["🧑 You, on any device"] -->|"tap Wake"| Page["🌐 Wake page<br/>(runs in AWS)"]
+    Clock["⏰ Work-hours schedule<br/>(runs in AWS)"] -->|"start"| EC2
+    Page -->|"start"| EC2["🖥️ Your EC2 instance"]
     EC2 -->|"idle 30 min: email"| You
     EC2 -->|"idle 45 min: stops itself"| EC2
 ```
 
-- **Waking** happens in AWS, so it works even when your computer is off.
-- **Stopping** happens inside the instance itself.
-- **Details:** the full picture, with the reasons behind each choice, is in **[WORKFLOW.md](WORKFLOW.md)**.
+- ☁️ **Waking** happens in AWS, so it works even when your computer is off.
+- 💤 **Stopping** happens inside the instance itself.
+- 📖 **Details:** the full picture, with the reasons behind each choice, is in **[WORKFLOW.md](WORKFLOW.md)**.
 
 ---
 
@@ -111,11 +111,11 @@ AWS charges **nothing extra for stopping and starting**. You pay the normal rate
 
 | What | Cost |
 |---|---|
-| **Computer time** | Only while running, billed per second with a one-minute minimum per start. |
-| **Wind-down time** | About 45 minutes after you finish, roughly US$0.09 in the example below. |
-| **Disk storage** | All month, even while stopped. |
-| **Fixed IP address** (optional) | About US$3.65/month. Without one, the address changes at each start and the wake page shows the new one. |
-| **Email, wake page, schedule, alarm** | Expected US$0. Normal use fits inside the AWS free allowances. |
+| 🖥️ **Computer time** | Only while running, billed per second with a one-minute minimum per start. |
+| ⏳ **Wind-down time** | About 45 minutes after you finish, roughly US$0.09 in the example below. |
+| 💾 **Disk storage** | All month, even while stopped. |
+| 🌍 **Fixed IP address** (optional) | About US$3.65/month. Without one, the address changes at each start and the wake page shows the new one. |
+| ✉️ **Email, wake page, schedule, alarm** | Expected US$0. Normal use fits inside the AWS free allowances. |
 
 <details>
 <summary><b>Price details and links</b></summary>
@@ -137,9 +137,9 @@ AWS charges **nothing extra for stopping and starting**. You pay the normal rate
 
 | How you use it | Per month | US$200 lasts about |
 |---|---:|---|
-| Left on all the time | **US$95.83** | 2 months |
-| 8 hours every day, then auto-stop | **US$40.31** | 5 months |
-| 8 hours on weekdays, then auto-stop | **US$31.49** | 6 months, the full [AWS Free plan](https://aws.amazon.com/free/free-tier-faqs/) period |
+| 🔴 Left on all the time | **US$95.83** | 2 months |
+| 🟡 8 hours every day, then auto-stop | **US$40.31** | 5 months |
+| 🟢 8 hours on weekdays, then auto-stop | **US$31.49** | 6 months, the full [AWS Free plan](https://aws.amazon.com/free/free-tier-faqs/) period |
 
 The example assumes:
 - US$0.1197 per hour.
@@ -149,22 +149,22 @@ The example assumes:
 Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricing/on-demand/)
 
 > [!IMPORTANT]
-> **What uses extra credit:**
+> ⚠️ **What uses extra credit:**
 > - An editor window left open, because it counts as working.
 > - Long jobs you've marked as "keep awake".
 > - The 45-minute wind-down after each session.
 >
-> Run one [full test](TESTING.md#level-6-live-acceptance-cycle) before relying on the savings.
+> Run one [full test](TESTING.md#-level-6-live-acceptance-cycle) before relying on the savings.
 
 ---
 
 ## 🔐 Is it safe?
 
-- **The wake page needs your wake key.** Even someone with both the link and the key can only *start* the instance. They can't log in, read files or stop it, and it turns itself off again when idle.
-- **AWS never stores your key,** only a scrambled fingerprint of it (a SHA-256 hash).
-- **Each part has the smallest possible permission.** The wake page can only start this one instance, and the instance can only stop itself.
-- **AI agents need your yes for every change.** Reading the docs gives them no permission. See the [agent rules](AGENT_SETUP.md#step-0-rules-for-the-agent).
-- **Tip:** limit who can reach your instance's SSH port to your own IP address. The discovery check warns you if it's open to everyone.
+- 🔑 **The wake page needs your wake key.** Even someone with both the link and the key can only *start* the instance. They can't log in, read files or stop it, and it turns itself off again when idle.
+- 🔒 **AWS never stores your key,** only a scrambled fingerprint of it (a SHA-256 hash).
+- 🧩 **Each part has the smallest possible permission.** The wake page can only start this one instance, and the instance can only stop itself.
+- 🤖 **AI agents need your yes for every change.** Reading the docs gives them no permission. See the [agent rules](AGENT_SETUP.md#-step-0-rules-for-the-agent).
+- 🚪 **Tip:** limit who can reach your instance's SSH port to your own IP address. The discovery check warns you if it's open to everyone.
 
 ---
 
@@ -172,11 +172,11 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 
 | You need | Notes |
 |---|---|
-| An EC2 instance with an **EBS disk** | Most instances have one. Ubuntu 20.04+, Debian 11+ or Amazon Linux 2023. |
-| Access to the **AWS console** | Its built-in terminal, **CloudShell**, does the AWS work, so you install nothing on your computer. |
-| A way to connect over **SSH** | The way you connect today is fine. |
+| 🖥️ An EC2 instance with an **EBS disk** | Most instances have one. Ubuntu 20.04+, Debian 11+ or Amazon Linux 2023. |
+| ☁️ Access to the **AWS console** | Its built-in terminal, **CloudShell**, does the AWS work, so you install nothing on your computer. |
+| 🔐 A way to connect over **SSH** | The way you connect today is fine. |
 
-**Not supported:** Windows instances, instance-store disks, and one-time Spot Instances. None of these can be stopped and restarted.
+🚫 **Not supported:** Windows instances, instance-store disks, and one-time Spot Instances. None of these can be stopped and restarted.
 
 <details>
 <summary><b>Key terms</b></summary>
@@ -199,26 +199,26 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 
 ## 📚 Guides
 
-| Guide | Read it when |
-|---|---|
-| [SETUP.md](SETUP.md) | You set it up yourself, once. |
-| [AGENT_SETUP.md](AGENT_SETUP.md) | An AI assistant sets it up for you. |
-| [RUNBOOK.md](RUNBOOK.md) | Everyday use, waking from a terminal, fixing problems, removing it. |
-| [TESTING.md](TESTING.md) | You want proof that it works. |
-| [WORKFLOW.md](WORKFLOW.md) | You're curious how and why it works. |
+| | Guide | Read it when |
+|---|---|---|
+| 🧭 | [SETUP.md](SETUP.md) | You set it up yourself, once. |
+| 🤖 | [AGENT_SETUP.md](AGENT_SETUP.md) | An AI assistant sets it up for you. |
+| 📖 | [RUNBOOK.md](RUNBOOK.md) | Everyday use, waking from a terminal, fixing problems, removing it. |
+| 🧪 | [TESTING.md](TESTING.md) | You want proof that it works. |
+| 🧠 | [WORKFLOW.md](WORKFLOW.md) | You're curious how and why it works. |
 
 <details>
 <summary><b>Files in this folder</b></summary>
 
 | File | Runs on | Purpose |
 |---|---|---|
-| [ec2-idle-stack.yaml](ec2-idle-stack.yaml) | AWS CloudFormation | Wake page, permissions, email, optional schedule and backup alarm |
-| [discover.sh](discover.sh) | AWS CloudShell | Read-only check of your account, with suggested settings |
-| [install_guest.sh](install_guest.sh) | Your EC2 instance | One-time install, or uninstall, of the idle timer |
-| [ec2_idle.py](ec2_idle.py), [ec2-idle.service](ec2-idle.service), [ec2-idle.timer](ec2-idle.timer), [ec2-idle.conf](ec2-idle.conf) | Your EC2 instance | Idle timer program and settings |
-| [wake_ec2.py](wake_ec2.py) | AWS Lambda | Wake page program (built into the stack file) |
-| [ec2_up.py](ec2_up.py) | Your computer, optional | Lets `ssh` wake the instance by itself |
-| [test_workflow.py](test_workflow.py), [verify_guest.sh](verify_guest.sh), [sync_template.py](sync_template.py) | Anywhere | Tests and maintenance |
+| [ec2-idle-stack.yaml](ec2-idle-stack.yaml) | ☁️ AWS CloudFormation | Wake page, permissions, email, optional schedule and backup alarm |
+| [discover.sh](discover.sh) | ☁️ AWS CloudShell | Read-only check of your account, with suggested settings |
+| [install_guest.sh](install_guest.sh) | 🖥️ Your EC2 instance | One-time install, or uninstall, of the idle timer |
+| [ec2_idle.py](ec2_idle.py), [ec2-idle.service](ec2-idle.service), [ec2-idle.timer](ec2-idle.timer), [ec2-idle.conf](ec2-idle.conf) | 🖥️ Your EC2 instance | Idle timer program and settings |
+| [wake_ec2.py](wake_ec2.py) | ☁️ AWS Lambda | Wake page program (built into the stack file) |
+| [ec2_up.py](ec2_up.py) | 💻 Your computer, optional | Lets `ssh` wake the instance by itself |
+| [test_workflow.py](test_workflow.py), [verify_guest.sh](verify_guest.sh), [sync_template.py](sync_template.py) | 🧪 Anywhere | Tests and maintenance |
 
 </details>
 

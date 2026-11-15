@@ -1,4 +1,4 @@
-# Runbook
+# 📖 Runbook
 
 [README](README.md) · [How it works](WORKFLOW.md) · [Setup](SETUP.md) · [Agent setup](AGENT_SETUP.md) · [Testing](TESTING.md)
 
@@ -12,7 +12,7 @@
 
 ---
 
-## 🧭 Quick answers
+## ⚡ Quick answers
 
 | I want to… | Do this |
 |---|---|
@@ -107,9 +107,9 @@ None of these need anything installed.
 
 | Way | How |
 |---|---|
-| **CloudShell** | AWS console → CloudShell icon → run `aws ec2 start-instances --instance-ids <INSTANCE_ID>` |
-| **EC2 console** | Select your instance → **Instance state → Start instance** |
-| **AWS phone app** | EC2 → your instance → **Start** |
+| ☁️ **CloudShell** | AWS console → CloudShell icon → run `aws ec2 start-instances --instance-ids <INSTANCE_ID>` |
+| 🖥️ **EC2 console** | Select your instance → **Instance state → Start instance** |
+| 📱 **AWS phone app** | EC2 → your instance → **Start** |
 
 ---
 
@@ -135,7 +135,7 @@ systemctl list-timers ec2-idle.timer --no-pager               # is it scheduled?
 sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idle.py --check'
 ```
 
-### It never stops
+### 🔁 It never stops
 
 | You see | Why | Fix |
 |---|---|---|
@@ -144,18 +144,18 @@ sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idl
 | Errors in the log | It's missing a permission or setting. | Run the `--check` command above. It names the problem. |
 | An email from the backup alarm | The instance ran for hours without stopping. | Look at the log above. A long, quiet editing session can also cause this. |
 
-### It stopped while I was working
+### ⛔ It stopped while I was working
 
 Only logged-in connections count as activity. Web apps you use without an SSH login, and jobs your long-job check doesn't cover, don't count. Add a [long-job check](SETUP.md#step-4-install-the-idle-timer-on-the-instance) for them.
 
-### No warning email
+### ✉️ No warning email
 
 1. Confirm the subscription email from AWS, and check your spam folder.
 2. To send a test, run the `--check` command with `--test-email` added.
 
 If emails keep failing, the instance still stops after 3 tries, so it doesn't run up costs.
 
-### Waking problems
+### 🌐 Waking problems
 
 | You see | Fix |
 |---|---|

@@ -1,10 +1,10 @@
-# Testing
+# 🧪 Testing
 
 [README](README.md) · [How it works](WORKFLOW.md) · [Setup](SETUP.md) · [Agent setup](AGENT_SETUP.md) · [Runbook](RUNBOOK.md)
 
 > [!TIP]
 > **In short**
-> - **Most people need one test:** the 5-minute [live test](#level-6-live-acceptance-cycle) after setup. The instance stops, you wake it, and your files are still there.
+> - **Most people need one test:** the 5-minute [live test](#-level-6-live-acceptance-cycle) after setup. The instance stops, you wake it, and your files are still there.
 > - **The other levels** are for checking before going live, or after changing the code.
 
 ---
@@ -15,19 +15,19 @@ Each level proves a bit more. The first five never stop your instance.
 
 | Level | Proves | Where | Safe? |
 |---|---|---|---|
-| 1. Unit tests | The program logic works. | Any computer | Yes |
-| 2. Template check | The AWS stack file is valid. | Any computer | Yes |
-| 3. Account check | Your account and instance are suitable. | CloudShell | Yes, read-only |
-| 4. Instance check | Connections, permissions and email work on the instance. | Instance | Sends one test email |
-| 5. Practice run | The timer would warn and stop on time, but doesn't. | Instance | Yes |
-| 5b. Practice wake | The wake page is allowed to start the instance. | Browser or terminal | Yes |
-| 6. Live test | Everything, for real. | Everywhere | **Stops the instance** |
+| 🔵 1. Unit tests | The program logic works. | Any computer | Yes |
+| 🔵 2. Template check | The AWS stack file is valid. | Any computer | Yes |
+| 🔵 3. Account check | Your account and instance are suitable. | CloudShell | Yes, read-only |
+| 🟡 4. Instance check | Connections, permissions and email work on the instance. | Instance | Sends one test email |
+| 🟡 5. Practice run | The timer would warn and stop on time, but doesn't. | Instance | Yes |
+| 🟡 5b. Practice wake | The wake page is allowed to start the instance. | Browser or terminal | Yes |
+| 🟢 6. Live test | Everything, for real. | Everywhere | **Stops the instance** |
 
 ---
 
-## Level 1: Unit tests
+## 🔵 Level 1: Unit tests
 
-**Run in:** any computer with Python 3.8 or newer. No AWS access is needed.
+**▶ Run in:** any computer with Python 3.8 or newer. No AWS access is needed.
 
 ```bash
 python -B -m unittest discover -s ec2-idle-workflow -v
@@ -50,9 +50,9 @@ python -B -m unittest discover -s ec2-idle-workflow -v
 
 </details>
 
-## Level 2: Template check
+## 🔵 Level 2: Template check
 
-**Run in:** any computer
+**▶ Run in:** any computer
 
 ```bash
 pip install cfn-lint && cfn-lint ec2-idle-workflow/ec2-idle-stack.yaml
@@ -60,9 +60,9 @@ pip install cfn-lint && cfn-lint ec2-idle-workflow/ec2-idle-stack.yaml
 
 **You should see:** no output.
 
-## Level 3: Account check
+## 🔵 Level 3: Account check
 
-**Run in:** CloudShell · **Changes nothing**
+**▶ Run in:** CloudShell · 🔒 **Changes nothing**
 
 ```bash
 bash discover.sh --instance <INSTANCE_ID>
@@ -70,9 +70,9 @@ bash discover.sh --instance <INSTANCE_ID>
 
 **You should see:** no `UNSUPPORTED` or `FIX` lines under **Findings**.
 
-## Level 4: Instance check
+## 🟡 Level 4: Instance check
 
-The installer already runs this. To run it again, **run in:** the instance
+The installer already runs this. To run it again, **▶ run in:** the instance
 
 ```bash
 sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idle.py --check --expect-session --test-email'
@@ -80,9 +80,9 @@ sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idl
 
 **You should see:** every line starting with `OK`, then `All checks passed.`, and a test email arrives.
 
-## Level 5: Practice run
+## 🟡 Level 5: Practice run
 
-**Run in:** the instance, from the copied folder. It uses a temporary timer with 1- and 2-minute times and a fake job, and **never stops** the instance.
+**▶ Run in:** the instance, from the copied folder. It uses a temporary timer with 1- and 2-minute times and a fake job, and **never stops** the instance.
 
 ```bash
 sudo -v && bash verify_guest.sh
@@ -90,7 +90,7 @@ sudo -v && bash verify_guest.sh
 
 **You should see**, after about 3 minutes: `Would publish warning.`, then `Would call EC2 StopInstances.`, then `Dry-run cycle passed.`
 
-## Level 5b: Practice wake
+## 🟡 Level 5b: Practice wake
 
 1. Update the stack and set `WakeDryRun` to `true`.
 2. Run:
@@ -105,7 +105,7 @@ sudo -v && bash verify_guest.sh
 - If the instance is stopped: `message: Dry run. Start permission verified.`
 - If it's running: `ready: yes`.
 
-## Level 6: Live acceptance cycle
+## 🟢 Level 6: Live acceptance cycle
 
 > [!WARNING]
 > This **really stops your instance**. Save your work first. If waking fails, use the [other ways to wake](RUNBOOK.md#-if-waking-doesnt-work).
@@ -140,9 +140,9 @@ sudo -v && bash verify_guest.sh
 
 | Check | Result |
 |---|---|
-| 35 unit tests on Windows, Python 3.13, with and without botocore | Passed |
-| Request signing matches AWS's published example and botocore | Passed |
-| Template check (`cfn-lint`) | Clean |
-| `discover.sh` against simulated AWS answers | Passed |
-| Services allowed on the AWS Free plan | Confirmed from AWS docs |
-| Levels 3 to 6 on a real account | Not run yet. Do them once after setup. |
+| 35 unit tests on Windows, Python 3.13, with and without botocore | ✅ Passed |
+| Request signing matches AWS's published example and botocore | ✅ Passed |
+| Template check (`cfn-lint`) | ✅ Clean |
+| `discover.sh` against simulated AWS answers | ✅ Passed |
+| Services allowed on the AWS Free plan | ✅ Confirmed from AWS docs |
+| Levels 3 to 6 on a real account | ⏳ Not run yet. Do them once after setup. |
