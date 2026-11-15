@@ -91,7 +91,7 @@ install_packages() { # install_packages <manager> <package>...
                  && root env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" ;;
         dnf | yum) root "$manager" install -y -q "$@" ;;
         zypper) root zypper --non-interactive install "$@" ;;
-        pacman) root pacman -Sy --noconfirm "$@" ;;
+        pacman) root pacman -Syu --noconfirm --needed "$@" ;;   # Arch does not support partial upgrades (-Sy alone)
         apk) root apk add --no-cache "$@" ;;
         *) return 1 ;;
     esac

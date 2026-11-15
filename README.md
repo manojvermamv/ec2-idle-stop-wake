@@ -194,9 +194,21 @@ Your Region's prices may differ. [EC2 pricing](https://aws.amazon.com/ec2/pricin
 |---|---|
 | 🖥️ An EC2 instance with an **EBS disk** | Most instances have one. It needs Linux with systemd and Python 3.6 or newer. The installer installs Python for you if it's missing. |
 | ☁️ Access to the **AWS console** | Its built-in terminal, **CloudShell**, can do the AWS work, so you install nothing on your computer. On a brand-new account CloudShell may not open for up to two days. The setup guide has console steps for that. |
-| 🔐 A way to connect over **SSH** | The way you connect today is fine. |
+| 🔐 A way to get a **shell** on the instance, once | SSH, EC2 Instance Connect, or Session Manager (the stack can switch it on for you). The setup check tells you what's missing. |
 
-🚫 **Not supported:** Windows instances, instance-store disks, and one-time Spot Instances. None of these can be stopped and restarted.
+🚫 **Not supported:** Windows and Mac instances, instances with no systemd (Alpine, containers, Bottlerocket), instance-store root disks, members of an Auto Scaling group, and non-persistent Spot Instances. The setup check flags these before anything is changed.
+
+### Which systems have been tested?
+
+| Level | Systems |
+|---|---|
+| Tested end to end on a real instance | Ubuntu 24.04 on x86_64 (Sydney) |
+| Installer and unit tests pass in CI containers (x86_64) | Ubuntu 20.04, 22.04, 24.04 and 26.04. Debian 12 and 13. Amazon Linux 2 and 2023. Rocky, AlmaLinux and Oracle Linux 8 and 9 (AlmaLinux also 10). CentOS Stream 9. Fedora (latest). openSUSE Leap 15.6 |
+| Same, on arm64 (Graviton) | Ubuntu 24.04, Debian 13, Amazon Linux 2023, Rocky Linux 9 |
+| Python versions tested | 3.6 to 3.14 |
+| Not covered | Debian 11 (its package servers are retired), Arch Linux (fixed in the installer, not yet in CI), everything else. Other systemd Linux systems should work, but nobody has checked. |
+
+The CI containers have no systemd, so they prove the installer finds Python and the code runs on each system's own Python. They can't prove the timer starts, or that the instance stops. Only the real Ubuntu test showed that. The full list and results are in [TESTING.md](TESTING.md#-automatic-checks-ci).
 
 <details>
 <summary><b>Key terms</b></summary>
