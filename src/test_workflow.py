@@ -661,9 +661,18 @@ class LambdaTests(Case):
                                ({"action": "status"}, {"headers": {"x-wake-pin": self.PIN}}),
                                ({"action": "status"}, {"headers": {"X-Wake-Key": self.PIN}})):
             self.assertEqual(self.post(payload, **extra)[0], 403)
-        encoded = base64.b64encode(json.dumps({"action": "status", "pin": self.PIN}).encode()).decode()
-        status, data = self.post({}, body=encoded, isBase64Encoded=True)
+        status, data = self.post({}, body="!!not base64!!", isBase64Encoded=True)
         self.assertEqual((status, data["error"]), (400, "Send a JSON or form body"))
+
+    def test_form_body_from_curl_arrives_base64_encoded(self):
+        # Lambda Function URLs deliver "curl -d pin=..." base64-encoded; the documented command must work.
+        self.state("running", "192.0.2.10")
+        encoded = base64.b64encode(("pin=%s&action=status" % self.PIN).encode()).decode()
+        event = {"requestContext": {"http": {"method": "POST"}}, "body": encoded, "isBase64Encoded": True,
+                 "headers": {"content-type": "application/x-www-form-urlencoded"}}
+        result = self.module.lambda_handler(event, None)
+        self.assertEqual(result["statusCode"], 200)
+        self.assertIn("state: running", result["body"])
 
     def test_page_has_a_pin_field_and_one_tap_bookmark(self):
         page = self.get("text/html")["body"]

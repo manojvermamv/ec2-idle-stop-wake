@@ -11,6 +11,7 @@ wrong tries lock the page for a while (state kept in a small DynamoDB table),
 so even a short PIN cannot be guessed. The PIN can only start the instance.
 """
 
+import base64
 import hmac
 import json
 import os
@@ -195,7 +196,8 @@ def read_request(event):
     """Return a dict of request fields from a JSON or form body."""
     body = event.get("body") or ""
     if event.get("isBase64Encoded"):
-        raise ValueError("Send the PIN as a plain form or JSON body")
+        # Function URLs hand over form bodies (curl -d) base64-encoded.
+        body = base64.b64decode(body).decode("utf-8")
     headers = lowered(event.get("headers"))
     kind = headers.get("content-type", "")
     if "json" in kind or body.lstrip().startswith("{"):
