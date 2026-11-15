@@ -23,6 +23,13 @@
 - **You should see** shows what success looks like.
 - `<LIKE_THIS>` marks a value to replace. You collect these values in Step 0.
 
+> [!NOTE]
+> **New AWS account? CloudShell may not open yet.** While AWS verifies a new account (up to two days), CloudShell can show *"Unable to create the environment. Your account verification is in progress"*. You can still finish setup without it:
+> - **Step 0:** use Option B, or an AI assistant with an AWS MCP server.
+> - **Step 1:** use the PowerShell command.
+> - **Step 2:** use the console upload.
+> - **Step 3:** use the console steps.
+
 **The six steps:**
 
 | Step | What | Time |
@@ -56,7 +63,10 @@ bash discover.sh --instance <INSTANCE_ID>  # checks one and suggests settings
 
 **You should see:**
 - A **Suggested stack parameters** list. Copy it into the table below.
-- A **Findings** list. Lines starting with `UNSUPPORTED` or `FIX` must be sorted out first.
+- A **Findings** list:
+  - `UNSUPPORTED` or `FIX` lines must be sorted out first.
+  - `KEEP` means keep what you have, for example an Elastic IP that's already attached.
+  - `CHECK` means look before continuing. For example, "no SSH route from outside" means you'll need one of the ways in Step 4 to reach the instance.
 
 ### Option B: fill it in yourself ✍️
 
@@ -68,7 +78,7 @@ bash discover.sh --instance <INSTANCE_ID>  # checks one and suggests settings
 | Login name | `ubuntu` on Ubuntu, `ec2-user` on Amazon Linux, `admin` on Debian | `<SSH_USER>` |
 | Disk encryption key | EC2 → Volumes → KMS key. Fill this in only if it isn't `aws/ebs`. | `<KMS_KEY_ARN_OR_EMPTY>` |
 | Email for warnings | Optional | `<EMAIL_OR_EMPTY>` |
-| IP address | **Fixed** (about US$3.65/month) or **changing** (free, and the wake page shows it) | fixed / changing |
+| IP address | **Already has an Elastic IP?** Keep it and skip Step 3b. Otherwise choose **fixed** (about US$3.65/month) or **changing** (free, and the wake page shows it). | keep / fixed / changing |
 | Daily start time | Optional, for example `cron(0 9 ? * MON-FRI *)` for 9:00 on weekdays, plus a time zone such as `Asia/Kolkata` | `<CRON_OR_EMPTY>` `<TIME_ZONE>` |
 | Long jobs | Work that must keep running after you disconnect, such as AI agents, builds or training | `<JOBS_OR_NONE>` |
 
@@ -81,21 +91,20 @@ bash discover.sh --instance <INSTANCE_ID>  # checks one and suggests settings
 
 The wake key is the password for your wake page. AWS only keeps a scrambled fingerprint of it, called the **hash**.
 
-**▶ Run in:** CloudShell (or a Mac or Linux terminal) · 🔒 **Changes nothing**
+**▶ Run in:** your computer · 🔒 **Changes nothing**
 
-```bash
-key=$(openssl rand -hex 20); echo "Wake key: $key"; echo "Hash:     $(printf '%s' "$key" | sha256sum | cut -d' ' -f1)"
-```
-
-<details>
-<summary>On Windows instead (PowerShell)</summary>
+**Windows (PowerShell):**
 
 ```powershell
 $b = [byte[]]::new(20); [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); $key = -join ($b | % { $_.ToString('x2') })
 "Wake key: $key"; "Hash:     " + (-join ([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($key)) | % { $_.ToString('x2') }))
 ```
 
-</details>
+**Mac, Linux, Git Bash or CloudShell:**
+
+```bash
+key=$(openssl rand -hex 20); echo "Wake key: $key"; echo "Hash:     $(printf '%s' "$key" | sha256sum | cut -d' ' -f1)"
+```
 
 **You should see:** two lines of random letters and numbers.
 
@@ -151,7 +160,7 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 | `BackupAlarmCpuPercent` | `3` | The CPU level that counts as "low". |
 | `BackupAlarmAction` | `notify` | `stop` also stops the instance, but it could interrupt a quiet editing session. |
 | `WakeDryRun` | `false` | `true` makes **Wake** only check permission, which is useful for testing. |
-| `WakeMaxConcurrency` | `0` | Optional limit on simultaneous wake requests. Keep `0` on new accounts. |
+| `WakeMaxConcurrency` | `0` | Optional limit on simultaneous wake requests. Keep `0` if your Lambda concurrency quota is 100 or less, which includes most new accounts (10). Above 100, `3` is a good cap. |
 
 </details>
 
@@ -164,20 +173,25 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 | **GuestInstallCommand** | You'll paste this in Step 4. |
 | **AttachRoleCommand** | Shown only if a new role was created. You'll use it in Step 3. |
 
+> [!IMPORTANT]
+> If you entered an email, AWS sends a **Subscription Confirmation** email. Click **Confirm subscription** now, **before Step 4**, or the installer's test email and later warnings won't arrive.
+
 > [!NOTE]
-> If you entered an email, AWS sends a **Subscription Confirmation** email. Click the link in it, or warnings won't arrive.
+> **An email titled "ALARM" right after this step is normal** if the instance was already sitting idle. The backup alarm looks back over the last few hours and sees no timer stopping the instance yet. It clears by itself once the timer is installed and the instance stops.
 
 ---
 
 ## Step 3: Give the instance its permission
 
-**▶ Run in:** CloudShell · ✏️ **Changes AWS**
+**▶ Run in:** CloudShell or the AWS console · ✏️ **Changes AWS**
 
-**3a.** Do this only if the **AttachRoleCommand** output exists. Copy it from the Outputs tab and run it.
+**3a.** Do this only if the **AttachRoleCommand** output exists.
+- **CloudShell:** copy the command from the Outputs tab and run it. **You should see:** `"State": "associating"`.
+- **Console:** EC2 → your instance → **Actions → Security → Modify IAM role**. Choose the profile named in **AttachRoleCommand** (it starts with `ec2-idle-GuestInstanceProfile-`), then choose **Update IAM role**.
 
-**You should see:** `"State": "associating"`.
+Wait about **1 minute** before Step 4, so the instance can start using the role.
 
-**3b. Optional fixed IP.** Do this only if you chose a fixed address.
+**3b. Optional fixed IP.** Do this only if you chose a new fixed address. Skip it if the instance already has an Elastic IP.
 
 ```bash
 alloc=$(aws ec2 allocate-address --query AllocationId --output text)
@@ -193,10 +207,24 @@ aws ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].Publi
 
 **▶ Run in:** the instance · ✏️ **Changes the instance**
 
-1. Connect to the instance and download this project:
+> [!CAUTION]
+> **Run these commands ON THE EC2 INSTANCE, not on your own computer.** In Windows PowerShell, `bash install_guest.sh` either fails with *"Windows Subsystem for Linux has no installed distributions"* or now stops with *"run this ON THE EC2 INSTANCE"*. Nothing gets installed on the instance that way.
+
+**First, open a terminal on the instance.** Use whichever of these works for you:
+
+| Way | Needs |
+|---|---|
+| **SSH** from your computer | An inbound port 22 rule for your IP in the instance's security group |
+| **EC2 Instance Connect** (EC2 console → instance → **Connect**) | An inbound port 22 rule for the AWS prefix list `com.amazonaws.<REGION>.ec2-instance-connect` |
+| **EC2 Instance Connect Endpoint** | An endpoint in the instance's VPC. It has no endpoint fee and needs no public SSH. |
+| **Session Manager** | The `AmazonSSMManagedInstanceCore` policy on the instance role |
+
+> [!TIP]
+> If none of these is set up, add a **temporary** inbound rule: port 22 from **My IP** only. Run the install, then delete the rule. The idle timer doesn't need it afterwards.
+
+1. On the instance, download this project:
 
    ```bash
-   ssh <SSH_HOST>
    git clone https://github.com/manojvermamv/ec2-idle-stop-wake.git
    cd ec2-idle-stop-wake/src
    ```
@@ -221,6 +249,9 @@ Installed. Mode stop: warning at 30 idle minutes, stop at 45.
 
 > [!WARNING]
 > If any line says **FAIL**, nothing was switched on. The line tells you what to fix. Fix it, then run the same command again.
+> - **Role** errors right after Step 3: wait a minute, then try again.
+
+**Double-check it's installed:** `systemctl list-timers ec2-idle.timer --no-pager` shows one timer. If it says **0 timers listed**, the install didn't happen on this instance.
 
 <details>
 <summary>Keep long jobs running after you disconnect</summary>
@@ -266,7 +297,7 @@ By default, the instance stops 45 minutes after your last connection closes. If 
 
 | Way | Setup | Every day |
 |---|---|---|
-| 🌐 **Wake page** | Bookmark **WakePageUrl**. | Tap **Wake**, then copy the connect command it shows. |
+| 🌐 **Wake page** | Bookmark **WakePageUrl**. | Tap **Wake**, then copy the connect command it shows. If SSH from outside is blocked, connect with the console's **Connect** button instead. |
 | ⌨️ **Terminal** | None. Works anywhere `curl` exists, including Windows 10+. | Run the **TerminalWakeCommand**, then the `ssh:` line it prints. |
 | 📌 **Fixed IP** | Add a normal SSH entry with your fixed IP. | Wake first, then connect as usual. |
 | 🔁 **Automatic** (optional) | Add `ec2_up.py` to your SSH config. Needs Python, but no AWS tools. | Just connect. It wakes the instance for you. |
@@ -315,7 +346,8 @@ Follow the short live test in [TESTING.md](TESTING.md#-level-6-live-acceptance-c
 - [ ] Stack `ec2-idle` shows **CREATE_COMPLETE**
 - [ ] Email subscription confirmed, if you added an email
 - [ ] Role attached in Step 3a, if one was created
-- [ ] Installer printed **All checks passed** and **Installed**
+- [ ] Installer printed **All checks passed** and **Installed**, run **on the instance**
+- [ ] `systemctl list-timers ec2-idle.timer` on the instance shows the timer
 - [ ] Wake page bookmarked on your computer and phone
 - [ ] The 5-minute live test passed
 

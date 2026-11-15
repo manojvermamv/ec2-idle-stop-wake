@@ -112,7 +112,7 @@ sudo -v && bash verify_guest.sh
 
 | Step | Do this | Where | You should see |
 |---|---|---|---|
-| 1 | `bash install_guest.sh --topic <ALERT_TOPIC_ARN> --warn 2 --stop 4` | Instance | `Installed. Mode stop: warning at 2 …` |
+| 1 | `bash install_guest.sh --topic <ALERT_TOPIC_ARN> --warn 2 --stop 4`, **on the instance** (not your PC) | Instance | `Installed. Mode stop: warning at 2 …` |
 | 2 | Close **every** connection and editor window | Your devices | – |
 | 3 | Wait about 3 minutes | – | The warning email arrives |
 | 4 | Wait about 2 more minutes | EC2 console | **Stopped** |
@@ -145,4 +145,8 @@ sudo -v && bash verify_guest.sh
 | Template check (`cfn-lint`) | ✅ Clean |
 | `discover.sh` against simulated AWS answers | ✅ Passed |
 | Services allowed on the AWS Free plan | ✅ Confirmed from AWS docs |
-| Levels 3 to 6 on a real account | ⏳ Not run yet. Do them once after setup. |
+| Live run on a real account (Ubuntu 24.04, m7i-flex.large, Sydney), deployed by a fresh AI agent from this repository through an AWS MCP server | ✅ Passed |
+| Level 4: instance check, test email delivered | ✅ Passed |
+| Level 6: warning at 2 idle minutes, stop requested at about 4.3, **Stopped** about 35 s later | ✅ Passed |
+| Level 6: wake through the API, `ready: yes` in 4 s, files intact | ✅ Passed |
+| Level 5 practice run (`verify_guest.sh`) on a real instance | ⏳ Not run yet |

@@ -334,7 +334,8 @@ def check(cfg, expect_session=False, test_email=False):
         ctx = instance_context()
         ok(f"Instance {ctx['instance_id']} in {ctx['region']} with role {ctx['role']}")
     except (OSError, RuntimeError, ValueError, KeyError) as error:
-        fail(f"Instance metadata or role: {error}")
+        fail(f"Instance metadata or role: {error}. Run this on the EC2 instance itself; if you "
+             "just attached the role, wait a minute and try again.")
         ctx = None
     if ctx:
         try:

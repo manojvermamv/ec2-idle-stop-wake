@@ -34,6 +34,7 @@ if ((uninstall)); then
 fi
 
 fail() { echo "install_guest: $*" >&2; exit 1; }
+[[ $(uname -s) == Linux ]] || fail "run this ON THE EC2 INSTANCE (SSH or EC2 Instance Connect), not on your computer."
 for tool in systemctl loginctl python3 pgrep; do
     command -v "$tool" >/dev/null || fail "$tool is required"
 done

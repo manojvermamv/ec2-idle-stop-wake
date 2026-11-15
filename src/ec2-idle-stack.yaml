@@ -57,8 +57,8 @@ Parameters:
     MinValue: 0
     MaxValue: 10
     Description: >-
-      Optional flood guard. Caps simultaneous wake page requests, for example 3. 0 = no cap.
-      New accounts with a Lambda concurrency quota of 10 cannot reserve any and must keep 0.
+      Optional flood guard. Caps simultaneous wake page requests. 0 = no cap. If your Lambda
+      concurrency quota is 100 or less (new accounts often have 10), keep 0. Above 100, 3 is a good cap.
   NotificationEmail:
     Type: String
     Default: ""
@@ -676,8 +676,11 @@ Resources:
     Condition: CreateAlarm
     Properties:
       AlarmDescription: !Sub >-
-        EC2 ${InstanceId} has run below ${BackupAlarmCpuPercent} percent CPU for
-        ${BackupAlarmHours} hours. Check that the idle watcher is working.
+        EC2 ${InstanceId} has been running quietly (under ${BackupAlarmCpuPercent} percent CPU)
+        for ${BackupAlarmHours} hours. Either a session or editor window is still open, or the
+        idle timer is not installed or not working. On the instance, check with
+        systemctl list-timers ec2-idle.timer. This can also fire right after the stack is
+        created if the instance was already idle and the timer is not installed yet.
       Namespace: AWS/EC2
       MetricName: CPUUtilization
       Dimensions:

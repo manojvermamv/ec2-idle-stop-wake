@@ -139,10 +139,11 @@ sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idl
 
 | You see | Why | Fix |
 |---|---|---|
+| `0 timers listed`, or `Unit ec2-idle.service could not be found` | **The timer isn't installed on this instance.** The most common cause is running the installer on your own computer instead of the instance. | Open a terminal **on the instance** (SSH, EC2 Instance Connect or Session Manager) and run the installer there ([Setup Step 4](SETUP.md#step-4-install-the-idle-timer-on-the-instance)). |
 | `Busy (remote login session)` | A connection is still open somewhere, often a forgotten editor window. | Close it. To find it, run `loginctl list-sessions`. To end it, run `sudo loginctl terminate-session <ID>`. |
 | `Busy (workload)` | Your long-job check still finds a running job. | Run the check by hand, then `echo $?`. Make its pattern stricter. |
 | Errors in the log | It's missing a permission or setting. | Run the `--check` command above. It names the problem. |
-| An email from the backup alarm | The instance ran for hours without stopping. | Look at the log above. A long, quiet editing session can also cause this. |
+| An "ALARM" email from the backup alarm | The instance ran quietly for hours without stopping. There are three possible reasons: an editor or session is still open, the timer isn't installed or working, or the stack was just created on an already-idle instance before the timer was installed. | Run the three commands above. If the timer is fine and nothing is open, it was a one-off from setup and clears once the instance stops. |
 
 ### ⛔ It stopped while I was working
 
