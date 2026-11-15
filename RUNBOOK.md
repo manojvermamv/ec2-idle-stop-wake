@@ -6,7 +6,7 @@
 > **In short**
 > - **Start:** open your wake page and tap **Wake**.
 > - **Work:** as usual.
-> - **Stop:** close your connections. You get one warning email at 30 minutes. At 45 it stops, and you get one "stopped" email with your wake link.
+> - **Stop:** close your connections. You get one warning email at 30 minutes. At 45 it stops, and you get one "stopped" email with your wake link. (An instance nobody uses stops about 50 minutes after it starts.)
 >
 > `<WAKE_URL>` is your wake page link (**WakePageUrl** in the stack's Outputs tab). `<PIN>` is the PIN you chose, in your password manager.
 
@@ -77,6 +77,7 @@ When `ready: yes` appears, run the `ssh:` line to connect.
 | `403` | Wrong PIN |
 | `429` | Too many wrong PINs. The page is locked for 15 minutes. |
 | `503` | The wrong-tries counter is unavailable. Start the instance from the EC2 console. |
+| `405` | Wrong HTTP method. Use GET for the page or POST for the API. |
 | `400` | Bad request |
 
 The progress lines arrive all together at the end. To watch live, repeat the status command.
@@ -123,7 +124,7 @@ None of these need anything installed.
 
 | What | How | Takes effect |
 |---|---|---|
-| Warning or stop times, long-job check (`WATCH`, `WATCH_MAX_HOURS`, `WORK_PROBE`), name in emails (`INSTANCE_NAME`), wake link in emails (`WAKE_PAGE_URL`), warning email limit (`WARN_EMAIL_GAP_MINUTES`, default 60) | On the instance: `sudoedit /etc/ec2-idle.conf` | Within 1 minute |
+| Warning or stop times, long-job check (`WATCH`, `WATCH_MAX_HOURS`, `WORK_PROBE`), name in emails (`INSTANCE_NAME`), wake link in emails (`WAKE_PAGE_URL`), warning email limit (`WARN_EMAIL_GAP_MINUTES`, default 60), failed warnings before it stops anyway (`WARN_RETRIES`, default 3) | On the instance: `sudoedit /etc/ec2-idle.conf` | Within 1 minute |
 | Monthly "still working" email (`MONTHLY_EMAIL`, `on` or `off`) | On the instance: `bash install_guest.sh --monthly-email off` (or `on`) | Within 1 minute |
 | Pause auto-stop | On the instance: `sudo systemctl disable --now ec2-idle.timer` | Immediately |
 | Turn auto-stop back on | On the instance: `sudo systemctl enable --now ec2-idle.timer` | Immediately |
@@ -144,6 +145,8 @@ systemctl list-timers ec2-idle.timer --no-pager               # is it scheduled?
 sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idle.py --check'
 ```
 
+If the last command says `python3: not found`, use the Python named on the `ExecStart` line of `systemctl cat ec2-idle.service` instead of `python3`.
+
 ### 🔁 It never stops
 
 | You see | Why | Fix |
@@ -163,7 +166,7 @@ sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idl
 | `could not install Python with …` | The package manager failed. | Install Python 3.6 or newer yourself, then run again with `--python /path/to/python3`. |
 | `systemd is not running here` | The timer needs systemd. Amazon Linux, Ubuntu, Debian, RHEL, Rocky, Alma, SUSE and Fedora have it. Alpine and containers don't. | Use a supported system. |
 | `No IAM role is attached to this instance` | The stack's role isn't on the instance yet. | Attach it ([Setup Step 3](SETUP.md#step-3-give-the-instance-its-permission)), wait a minute, run again. |
-| `Your current login was not seen as a session` | Without that, the timer could stop the instance while you're connected. | Debian and Ubuntu: `sudo apt install libpam-systemd`, make sure `sshd` has `UsePAM yes`, log in again. |
+| `Your current login was not seen as a session` | Without that, the timer could stop the instance while you're connected. This also appears if you are in a Session Manager shell, which the timer counts separately. | Debian and Ubuntu: the installer normally adds `libpam-systemd` by itself (unless you used `--no-deps`). Otherwise run `sudo apt install libpam-systemd`, make sure `sshd` has `UsePAM yes`, log in again over SSH. |
 | `this needs root` | There's no `sudo` and you aren't root. | Run it as root, or install `sudo`. |
 | `Found Python at …, but it is not used` | The timer runs as root, so its Python must belong to root and sit in folders only root can change. A pyenv, conda or home-folder Python doesn't qualify. | Nothing: the installer installs the system Python. Or pass `--python /usr/bin/python3`. |
 
@@ -190,7 +193,7 @@ If emails keep failing, the instance still stops after 3 tries, so it doesn't ru
 
 | You see | Fix |
 |---|---|
-| `error: Wrong PIN` | Check your password manager. After 5 wrong tries the page locks for 15 minutes. |
+| `error: Wrong PIN. 4 tries left before a 15-minute lock.` | Check your password manager. After 5 wrong tries the page locks for 15 minutes. |
 | `error: Too many wrong PIN tries` | Wait the time it says (up to 15 minutes), then use the right PIN. The lock ends by itself. It's shared by everyone, so someone else's wrong guesses can lock you out too. If you can't wait, [clear the lock](#-locked-out-or-forgot-the-pin) or start the instance from the EC2 console. If you forgot the PIN, [set a new one](#-locked-out-or-forgot-the-pin). |
 | It shows `pending`, then back to `stopped` | Check the reason in the EC2 console. If your disk uses your own encryption key, set `EbsKmsKeyArn` in the stack. A capacity shortage usually clears on retry. |
 | `409` for a long time | The instance is stuck stopping. Use **Force stop** in the EC2 console. |

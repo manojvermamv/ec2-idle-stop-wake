@@ -78,7 +78,7 @@ stateDiagram-v2
 - ✉️ **You always get the full warning time.** The 15 minutes count from when the email was actually sent.
 - 🧯 **Email trouble can't block the stop.** After 3 failed emails in a row, it stops without one. The "stopped" email is sent after the stop request, so it can never delay it.
 - 📬 **Quiet inbox.** At most one warning email per hour, even if you connect and disconnect several times, and one "stopped" email per stop.
-- 🩺 **A monthly "still working" note.** The first check of each new month (UTC) sends one short email, so silence never hides a broken timer. The month is saved only after AWS accepts the email, a failed send is retried at most once a day, and it never touches the stop. Turn it off with `--monthly-email off`. It uses a few emails a year, far below the free allowance.
+- 🩺 **A monthly "still working" note.** The first check of each new month (UTC) sends one short email, so silence never hides a broken timer. The month is saved only after AWS accepts the email, a failed send is retried at most once a day, and it never touches the stop. Turn it off with `--monthly-email off`. That is one email a month, far below the free allowance.
 - 🔁 **Every boot starts fresh.** The idle clock and the email limit are kept in memory only, so a restart resets both. The one exception is the monthly note's month and stop count, which are kept on disk (`/var/lib/ec2-idle`), because the instance is stopped and started all the time. The note can only be sent while the instance is running.
 
 ### What counts as "in use"
@@ -175,7 +175,7 @@ sequenceDiagram
 | The backup alarm only emails | Quiet editing uses little CPU, so an automatic stop could cut you off. | Stopping automatically on low CPU. |
 | The instance finds its own ID | Nothing to type wrong, and it can only ever stop itself. | Typing the ID into a settings file. |
 | Terminal wakes wait before replying | One command gives you a final answer. | Live streaming, which this Lambda runtime can't do. |
-| Spend alerts are a guide, not part of the stack | A budget belongs to your whole account, so a stack-owned one would duplicate and vanish with the stack. Some accounts limit Budgets, and a resource that can't be created would break the stack. Docs can't ([how to set one](SETUP.md#-optional-set-a-spend-alert)). | A budget resource in the stack. |
+| Spend alerts are a guide, not part of the stack | A budget belongs to your whole account, so a stack-owned one would duplicate and vanish with the stack. Some accounts limit Budgets, and a resource that can't be created would break the stack. A guide can't break anything ([how to set one](SETUP.md#-optional-set-a-spend-alert)). | A budget resource in the stack. |
 | No "wake on SSH attempt" | AWS only notices such attempts minutes later, and not reliably. | Watching network logs. |
 
 ---

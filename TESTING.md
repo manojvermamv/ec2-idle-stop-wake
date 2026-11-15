@@ -18,7 +18,7 @@ Each level proves a bit more. The first four never stop your instance.
 | 🔵 1. Unit tests | The program logic works. | Any computer | Yes |
 | 🔵 2. Template check | The AWS stack file is valid. | Any computer | Yes |
 | 🔵 3. Account check | Your account and instance are suitable. | CloudShell | Yes, read-only |
-| 🟡 4. Instance check | Connections, permissions and email work on the instance. | Instance | Sends one test email (first install only) |
+| 🟡 4. Instance check | Connections, permissions and email work on the instance. | Instance | Sends one test email |
 | 🟢 5. Live test | Everything, for real. | Everywhere | **Stops the instance** |
 
 ---
@@ -77,10 +77,10 @@ cd ec2-idle-stop-wake/src && bash discover.sh --instance <INSTANCE_ID>
 The installer already runs this. To run it again, **▶ run in:** the instance
 
 ```bash
-sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idle.py --check --expect-session --test-email'
+sudo bash -c 'set -a; . /etc/ec2-idle.conf; exec python3 /usr/local/sbin/ec2_idle.py --check --test-email'
 ```
 
-**You should see:** every line starting with `OK`, then `All checks passed.`, and a test email arrives.
+**You should see:** every line starting with `OK`, then `All checks passed.`, and a test email arrives. Connected over SSH and want the check to confirm your login is seen? Add `--expect-session` (it fails in a Session Manager shell, which is counted separately).
 
 ## 🟢 Level 5: Live acceptance cycle
 
@@ -129,7 +129,7 @@ sudo systemctl daemon-reload
 
 ## 🤖 Automatic checks (CI)
 
-Every push runs these on GitHub, in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Nothing for you to do.
+Every push to `main`, and every pull request, runs these on GitHub, in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Nothing for you to do.
 
 | Job | What it proves |
 |---|---|

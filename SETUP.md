@@ -61,13 +61,14 @@ bash discover.sh                           # lists your instances
 bash discover.sh --instance <INSTANCE_ID>  # checks one
 ```
 
-It checks the 5 things that can block setup: an EBS root disk, not Windows or Spot, instance metadata on, an existing role, and your Elastic IP and SSH route.
+It checks the 5 things that can block setup: an EBS root disk (with no stop protection, Auto Scaling group, Kubernetes node or local disks), not Windows, Mac or Spot, instance metadata on, an existing role, and your Elastic IP and SSH route.
 
 **You should see:**
 - A **Suggested stack settings** line. Copy it into the table below.
 - A **Findings** list:
   - `UNSUPPORTED` or `FIX` lines must be sorted out first.
   - `KEEP` means keep what you have, for example an Elastic IP that's already attached.
+  - `UNKNOWN` or `COULD NOT CHECK` means AWS refused a read (usually a missing permission), so that answer is not "fine". Fix the access and run it again.
   - `NOTE` and `RECOMMEND` are worth a look but don't block anything.
   - `CHECK` means look before continuing. For example, "no SSH route from outside" means you'll need one of the ways in Step 4 to reach the instance.
 
@@ -187,7 +188,7 @@ aws cloudformation describe-stacks --stack-name ec2-idle --query 'Stacks[0].Outp
 
 Wait about **1 minute** before Step 4, so the instance can start using the role.
 
-**3b. Optional fixed IP.** Do this only if you chose a new fixed address. Skip it if the instance already has an Elastic IP.
+**3b. Optional fixed IP.** Do this only if you chose a new fixed address. Skip it if the instance already has an Elastic IP. (In the console: **EC2 → Elastic IPs → Allocate Elastic IP address**, then **Actions → Associate** with your instance.)
 
 ```bash
 alloc=$(aws ec2 allocate-address --query AllocationId --output text)
@@ -206,13 +207,13 @@ aws ec2 describe-addresses --allocation-ids "$alloc" --query 'Addresses[0].Publi
 > [!CAUTION]
 > **Run these commands ON THE EC2 INSTANCE, not on your own computer.** In Windows PowerShell, `bash install_guest.sh` either fails with *"Windows Subsystem for Linux has no installed distributions"* or stops with *"run this ON THE EC2 INSTANCE"*. Either way, nothing gets installed on the instance.
 
-**The installer looks after its own prerequisites.** It needs Python 3.6 or newer and systemd. If Python is missing it installs it for you (with apt, dnf, yum, zypper, pacman or apk) and carries on. Add `--no-deps` to stop it installing anything.
+**The installer looks after its own prerequisites.** It needs Python 3.6 or newer and systemd. If Python is missing it installs it for you (with apt, dnf, yum, zypper, pacman or apk) and carries on. On Debian and Ubuntu it also adds `libpam-systemd`, so SSH logins are seen. Add `--no-deps` to stop it installing anything.
 
 **First, open a terminal on the instance.** Use whichever of these works for you. The first one is the best choice when you have no way in yet:
 
 | Way | Needs | Good when |
 |---|---|---|
-| **Session Manager** (EC2 console → instance → **Connect** → **Session Manager** tab) | **EnableSessionManager = yes** in Step 2 and the role attached in Step 3. The instance needs the AWS SSM agent (Ubuntu and Amazon Linux AMIs include it) and a route to the internet. Allow a few minutes after attaching the role. | **Recommended** when you can't SSH in: no port, no key, nothing to remove afterwards. |
+| **Session Manager** (EC2 console → instance → **Connect** → **Session Manager** tab) | **EnableSessionManager = yes** in Step 2 and the role attached in Step 3. The instance needs the AWS SSM agent (Ubuntu and Amazon Linux AMIs include it) and a route to the internet. Allow a few minutes after attaching the role. | **Recommended** when you can't SSH in: no port, no key, nothing to remove afterwards (not yet tested on a live account, see [TESTING](TESTING.md)). |
 | **SSH** from your computer | An inbound port 22 rule for your IP, and your key file | You already connect this way. |
 | **EC2 Instance Connect** (EC2 console → instance → **Connect**) | An inbound port 22 rule for the AWS prefix list `com.amazonaws.<REGION>.ec2-instance-connect` | You'd rather use the browser than your own key. |
 | **EC2 Instance Connect Endpoint** | An endpoint in the instance's VPC. It has no endpoint fee and needs no public SSH. | You keep SSH closed. |
@@ -228,7 +229,7 @@ This opens port 22 for **your current IP address only**, with an end time writte
 Run it on the computer you will connect from. It uses the public address it is run from, and in CloudShell that is CloudShell's address, not yours. If you do use CloudShell, add `--ip <YOUR_ADDRESS>`.
 
 ```bash
-bash temp_ssh.sh open <INSTANCE_ID>                 # your current IP only, for 30 minutes
+bash temp_ssh.sh open <INSTANCE_ID>                 # your current IP only, for 30 minutes (on Windows, use Git Bash or WSL)
 ssh -i ~/.ssh/<YOUR_KEY>.pem <SSH_USER>@<INSTANCE_IP>
 #   ...run the install below on the instance, then log out...
 bash temp_ssh.sh close <INSTANCE_ID>                # remove the rule
@@ -253,7 +254,7 @@ bash temp_ssh.sh close <INSTANCE_ID>                # remove the rule
 2. Paste the **GuestInstallCommand** from Step 2. It looks like this:
 
    ```bash
-   bash install_guest.sh --topic <ALERT_TOPIC_ARN> --wake-url <WAKE_URL>
+   bash install_guest.sh --topic <ALERT_TOPIC_ARN> --wake-url <WAKE_URL> --warn 30 --stop 45
    ```
 
    Optionally add `--name my-dev-box` to use a friendly name in emails. Otherwise the instance ID is used.
@@ -344,7 +345,7 @@ Good to know:
 |---|---|
 | `--warn 20 --stop 30` | Change the timings. The defaults are 30 and 45 minutes, and a reinstall keeps the last ones. The stack's **GuestInstallCommand** already includes yours. |
 | `--python /path/to/python3` | Use this Python (3.6 or newer) instead of the one it finds. |
-| `--no-deps` | Don't install anything, even if Python is missing. |
+| `--no-deps` | Don't install anything, even if Python (or, on Debian and Ubuntu, `libpam-systemd`) is missing. |
 | `--deps-only` | Check and install the prerequisites, show what was found, and stop. |
 | `--name my-dev-box` | A friendly name for the emails. |
 | `--watch builds,agents,training` | The ready-made long-job check from above. `--watch` alone watches all three, and `--watch off` turns it off. |
@@ -388,7 +389,7 @@ Host ec2-workspace
     IdentityFile ~/.ssh/<YOUR_PRIVATE_KEY>
     ConnectTimeout 360
     ServerAliveInterval 30
-    ProxyCommand python /absolute/path/to/ec2-idle-stop-wake/src/ec2_up.py <WAKE_URL> %h %p --pin-file ~/.ssh/ec2-wake.pin
+    ProxyCommand python3 /absolute/path/to/ec2-idle-stop-wake/src/ec2_up.py <WAKE_URL> %h %p --pin-file ~/.ssh/ec2-wake.pin
 ```
 
 3. Connect with `ssh ec2-workspace`. VS Code and Cursor can use the same name.

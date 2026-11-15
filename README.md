@@ -8,7 +8,7 @@ Your EC2 instance (a computer you rent from AWS) turns itself off when you stop 
 
 > [!TIP]
 > **In short**
-> - **Stops by itself.** After 45 quiet minutes, with one warning email at 30 and one "stopped" email that includes your wake link.
+> - **Stops by itself.** After 45 quiet minutes, with one warning email at 30 and one "stopped" email that includes your wake link. (An instance nobody uses stops about 50 minutes after it starts, because the first check runs 5 minutes after boot.)
 > - **Wakes from anywhere.** A private web page, a one-line terminal command, or a daily schedule.
 > - **Saves money.** About two-thirds less than leaving it on all the time, for a typical weekday routine.
 
@@ -21,7 +21,7 @@ Your EC2 instance (a computer you rent from AWS) turns itself off when you stop 
 | 🌅 Morning | The instance starts, from your schedule or when you tap **Wake** on your bookmarked page. | Open your editor or terminal and connect as usual. |
 | 💻 While working | Your open connection keeps it running. | Nothing. |
 | ✉️ You finish | 30 minutes later you get **one** email: "will stop in 15 minutes". | Nothing, or reconnect to keep it running. |
-| 💤 45 minutes later | It stops, and you get **one** "has stopped" email with your wake page link. Your files stay saved on its disk. | Nothing. You only pay for storage now. Tap the link when you need it again. |
+| 💤 45 minutes later | It stops, and you get **one** "has stopped" email with your wake page link. Your files stay saved on its disk. | Nothing. You only pay for storage now (and for a fixed IP, if you chose one). Tap the link when you need it again. |
 
 ---
 
@@ -134,7 +134,7 @@ AWS charges **nothing extra for stopping and starting**. You pay the normal rate
 | 💾 **Disk storage** | All month, even while stopped. |
 | 🌍 **Fixed IP address** (optional) | About US$3.65/month. Without one, the address changes at each start and the wake page shows the new one. |
 | ✉️ **Email, wake page, schedule, optional alarm** | Expected US$0. Normal use fits inside the AWS free allowances. |
-| 🔢 **Wrong-PIN counter** (DynamoDB) | Well under US$0.01 a month for normal use. It's billed per request, and each wake page request makes one tiny read. |
+| 🔢 **Wrong-PIN counter** (DynamoDB) | Well under US$0.01 a month for normal use. It's billed per request, and each wake page request makes a few tiny operations (one read, one write and one delete). |
 
 <details>
 <summary><b>Price details and links</b></summary>
@@ -148,7 +148,7 @@ AWS charges **nothing extra for stopping and starting**. You pay the normal rate
 | Lambda wake page | The first 1 million requests and 400,000 GB-seconds each month are free. [Lambda pricing](https://aws.amazon.com/lambda/pricing/) |
 | EventBridge Scheduler | The first 14 million runs each month are free. [EventBridge pricing](https://aws.amazon.com/eventbridge/pricing/) |
 | CloudWatch alarm (optional) | The first 10 alarms are free. [CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/) |
-| DynamoDB (wrong-PIN counter) | On-demand, billed per request. Each wake page request makes one tiny read, so normal use costs well under US$0.01 a month. [DynamoDB pricing](https://aws.amazon.com/dynamodb/pricing/on-demand/) |
+| DynamoDB (wrong-PIN counter) | On-demand, billed per request. Each wake page request makes a few tiny operations (one read, one write and one delete), so normal use costs well under US$0.01 a month. [DynamoDB pricing](https://aws.amazon.com/dynamodb/pricing/on-demand/) |
 | CloudFormation | No charge. |
 
 </details>
@@ -248,7 +248,7 @@ The CI containers have no systemd, so they prove the installer finds Python and 
 | File | Runs on | Purpose |
 |---|---|---|
 | [ec2-idle-stack.yaml](src/ec2-idle-stack.yaml) | ☁️ AWS CloudFormation | Wake page, permissions, email, optional schedule and optional backup alarm |
-| [discover.sh](src/discover.sh) | ☁️ AWS CloudShell | Read-only check of the 5 things that can block setup |
+| [discover.sh](src/discover.sh) | ☁️ AWS CloudShell | Read-only check of the 5 things that can block setup (including stop protection, Auto Scaling groups, Kubernetes nodes and local disks) |
 | [install_guest.sh](src/install_guest.sh) | 🖥️ Your EC2 instance | One-time install, or uninstall, of the idle timer. Installs missing prerequisites. |
 | [temp_ssh.sh](src/temp_ssh.sh) | 💻 Your own computer | Opens, and closes, a temporary SSH rule for your IP only, when you need a shell |
 | [ec2_idle.py](src/ec2_idle.py), [ec2-idle.service](src/ec2-idle.service), [ec2-idle.timer](src/ec2-idle.timer), [ec2-idle.conf](src/ec2-idle.conf) | 🖥️ Your EC2 instance | Idle timer program and settings |
